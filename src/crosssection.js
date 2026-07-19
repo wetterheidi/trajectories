@@ -18,11 +18,12 @@ const TERRAIN_EDGE = "#9c9b95";
 
 export function renderCrossSection(host, data) {
   host.innerHTML = "";
-  const { runs, t0Ms, direction } = data;
+  const { runs, t0Ms, direction, overlay } = data;
 
-  const series = runs.map(({ r, color, label, terrain }) => ({
+  const series = runs.map(({ r, color, label, terrain, dash }) => ({
     color,
     label,
+    dash: dash || null,
     pts: r.points
       .map((p, i) => ({ h: Math.abs(p.tMs - t0Ms) / 3600e3, z: p.z, g: terrain[i], tMs: p.tMs }))
       .filter((p) => Number.isFinite(p.z)),
@@ -35,12 +36,16 @@ export function renderCrossSection(host, data) {
     return;
   }
 
+  // Kleinvielfache: ein Streifen je Serie. Overlay (Methodenvergleich):
+  // alle Serien in einem Streifen, Gelände nur vom Referenzpfad (erste Serie).
+  const strips = overlay ? [series] : series.map((s) => [s]);
+
   const W = Math.max(host.clientWidth, 320);
   const H = Math.max(host.clientHeight, 120);
   const M = { l: 54, r: 10 };
   const axisH = 22;
   const pw = W - M.l - M.r;
-  const stripH = (H - axisH) / series.length;
+  const stripH = (H - axisH) / strips.length;
 
   const xMax = Math.max(...series.map((s) => s.pts.at(-1).h)) || 1;
   const zAll = series.flatMap((s) => s.pts.flatMap((p) => Number.isFinite(p.g) ? [p.z, p.g] : [p.z]));
@@ -68,7 +73,7 @@ export function renderCrossSection(host, data) {
   const dMin = heightToDisplay(yMin);
   const dMax = heightToDisplay(yMax);
   const yStep = niceStep((dMax - dMin) / 2.5);
-  series.forEach((s, i) => {
+  strips.forEach((group, i) => {
     const top = i * stripH;
     const bottom = top + stripH;
     const innerTop = top + 14; // Platz für die Streifen-Beschriftung
@@ -83,8 +88,8 @@ export function renderCrossSection(host, data) {
       );
     }
 
-    // Gelände entlang des Pfades dieser Trajektorie.
-    const gPts = s.pts.filter((p) => Number.isFinite(p.g));
+    // Gelände entlang des Pfades der ersten Serie der Gruppe (Referenz).
+    const gPts = group[0].pts.filter((p) => Number.isFinite(p.g));
     if (gPts.length > 1) {
       const line = gPts.map((p) => `${x(p.h).toFixed(1)},${y(p.g).toFixed(1)}`).join(" ");
       svg.append(mk("polygon", {
@@ -94,26 +99,32 @@ export function renderCrossSection(host, data) {
       svg.append(mk("polyline", { points: line, fill: "none", stroke: TERRAIN_EDGE, "stroke-width": 1 }));
     }
 
-    // Trajektorie und Zeitmarken.
-    svg.append(mk("polyline", {
-      points: s.pts.map((p) => `${x(p.h).toFixed(1)},${y(p.z).toFixed(1)}`).join(" "),
-      fill: "none", stroke: s.color, "stroke-width": 2,
-      "stroke-linejoin": "round", "stroke-linecap": "round",
-    }));
-    for (const m of s.marks) {
-      svg.append(mk("circle", {
-        cx: x(m.h), cy: y(m.z), r: 2.5, fill: "#ffffff", stroke: s.color, "stroke-width": 1.5,
+    // Trajektorien und Zeitmarken.
+    for (const s of group) {
+      svg.append(mk("polyline", {
+        points: s.pts.map((p) => `${x(p.h).toFixed(1)},${y(p.z).toFixed(1)}`).join(" "),
+        fill: "none", stroke: s.color, "stroke-width": 2,
+        "stroke-linejoin": "round", "stroke-linecap": "round",
+        ...(s.dash ? { "stroke-dasharray": s.dash } : {}),
       }));
+      for (const m of s.marks) {
+        svg.append(mk("circle", {
+          cx: x(m.h), cy: y(m.z), r: 2.5, fill: "#ffffff", stroke: s.color, "stroke-width": 1.5,
+        }));
+      }
+      s.y = y; // für die Hover-Ablesung
     }
 
-    // Streifen-Beschriftung und Trennlinie.
-    svg.append(mk("rect", { x: M.l + 6, y: top + 5, width: 14, height: 4, rx: 2, fill: s.color }));
-    svg.append(text(M.l + 25, top + 11, s.label, { anchor: "start", size: 11, fill: INK }));
+    // Beschriftung: alle Serien der Gruppe nebeneinander; Trennlinie.
+    let lx = M.l + 6;
+    for (const s of group) {
+      svg.append(mk("rect", { x: lx, y: top + 5, width: 14, height: 4, rx: 2, fill: s.color }));
+      svg.append(text(lx + 19, top + 11, s.label, { anchor: "start", size: 11, fill: INK }));
+      lx += 27 + s.label.length * 6.4;
+    }
     if (i > 0) {
       svg.append(mk("line", { x1: 0, x2: W, y1: top, y2: top, stroke: "#c9c8c2", "stroke-width": 1 }));
     }
-
-    s.y = y; // für die Hover-Ablesung
   });
 
   // Hover: Fadenkreuz über alle Streifen + Ablesung.

@@ -68,10 +68,13 @@ export class WindField {
    * anhand der Vertikaloption festlegen, welche Variablen geholt werden.
    */
   async init(lat0, lon0, maxHeightM, tMinMs, tMaxMs, vmotion = "height", metExtras = false) {
+    // vmotion darf ein Array sein (Methodenvergleich): die benötigten
+    // Variablen sind dann die Vereinigung aller Methoden.
+    const list = Array.isArray(vmotion) ? vmotion : [vmotion];
     this.needs = {
-      p: vmotion === "pressure" || vmotion === "theta",
-      t: vmotion === "theta",
-      w: vmotion === "z3d",
+      p: list.some((v) => v === "pressure" || v === "theta"),
+      t: list.includes("theta"),
+      w: list.includes("z3d"),
       met: metExtras, // T, Td (aus q), RH an den Rechenpunkten mitführen
     };
     if (this.needs.w && !this.wVarPrefix) {
@@ -79,7 +82,7 @@ export class WindField {
     }
     // Diagnose von p0/θ0 am Start braucht p und T auch bei anderen Optionen;
     // die Zusatzparameter brauchen beides ebenfalls (Td aus q und p).
-    if (vmotion === "pressure" || vmotion === "theta" || metExtras) {
+    if (this.needs.p || metExtras) {
       this.needs.p = true;
       this.needs.t = true;
     }
@@ -95,9 +98,9 @@ export class WindField {
     const probe = await this.request([[lat0, lon0]], vars);
     const h = probe[0];
 
-    // Isobare/isentrope Flächen können absinken/aufsteigen: großzügigerer
+    // Isobare/isentrope/3D-Flächen können absinken/aufsteigen: großzügigerer
     // Puffer als bei konstanter Höhe. Faktor 1.3 für Geländeeinfluss.
-    const buffer = vmotion === "height" ? 1200 : 2500;
+    const buffer = list.every((v) => v === "height") ? 1200 : 2500;
     const requiredTop = (maxHeightM + buffer) * 1.3;
     const levels = [];
     for (let l = n; l >= 1; l--) {

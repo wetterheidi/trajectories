@@ -45,6 +45,10 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 .grid2 label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; }
 .grid2 input, .grid2 select { width: 100%; }
 
+#methodlist { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0 4px; }
+#methodlist label { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 0; }
+#methodlist label.off { color: #9c9b95; }
+
 #heightlist { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0 4px; }
 .height-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .height-item .rm {

@@ -37,3 +37,12 @@ export const HEIGHT_MAX = 10000;
 
 // Zeitmarken-Abstände (Minuten) für die Punktmarkierungen.
 export const MARKER_INTERVALS = [10, 30, 60, 180, 360];
+
+// Methodenvergleich: Farbe je Berechnungsart (die ersten vier Palette-Slots
+// sind auch paarweise CVD-validiert), Strichlierung als Zweitkodierung.
+export const METHODS = [
+  { key: "height", label: "konstante Höhe", color: "#2a78d6", dash: null },
+  { key: "pressure", label: "isobar", color: "#008300", dash: "8 6" },
+  { key: "theta", label: "isentrop", color: "#e87ba4", dash: "12 4 3 4" },
+  { key: "z3d", label: "Modell-w (3D)", color: "#eda100", dash: "2 6" },
+];

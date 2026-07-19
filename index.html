@@ -44,7 +44,7 @@
       </label>
     </div>
 
-    <label class="row">Vertikalbewegung
+    <label class="row" id="vmotionrow">Vertikalbewegung
       <select id="vmotion">
         <option value="height" selected>konstante Höhe</option>
         <option value="pressure">isobar (konst. Druck)</option>
@@ -52,6 +52,11 @@
         <option value="z3d" disabled>Modell-Vertikalbewegung</option>
       </select>
     </label>
+
+    <div id="methodrow" hidden>
+      <div class="label">Methoden</div>
+      <div id="methodlist"></div>
+    </div>
 
     <div class="grid2">
       <label>Starthöhen-Referenz
@@ -68,6 +73,10 @@
     <label class="row">
       <span class="label">Live-Modus <span class="hint">(eine Höhe, folgt dem Schieber)</span></span>
       <input type="checkbox" id="livemode" />
+    </label>
+    <label class="row">
+      <span class="label">Methodenvergleich <span class="hint">(eine Höhe, alle Vertikalflächen)</span></span>
+      <input type="checkbox" id="comparemode" />
     </label>
 
     <div class="label" id="heightslabel">Starthöhen <span class="hint">(max. 8)</span></div>
@@ -117,7 +126,7 @@
   <div id="xsec" hidden>
     <div class="xsec-head">
       <span>Querschnitt entlang der Trajektorien</span>
-      <span class="hint">Höhe über NN · Gelände entlang des jeweiligen Pfades</span>
+      <span class="hint" id="xsec-hint">Höhe über NN · Gelände entlang des jeweiligen Pfades</span>
       <button id="xsec-close" title="Schließen">×</button>
     </div>
     <div id="xsec-body"></div>
