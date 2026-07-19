@@ -37,12 +37,13 @@ verschiedener Starthöhen laufen ja auseinander. Fadenkreuz-Hover zeigt Zeit,
 Höhen und Bodenhöhe über alle Streifen. Die Geländehöhen stammen aus den
 bereits gecachten Gitterpunkten (Modellorographie, keine zusätzlichen Abrufe).
 
-Der **Methodenvergleich** rechnet für genau eine Starthöhe je eine
-Trajektorie pro Berechnungsart (konstante Höhe, isobar, isentrop, Modell-w
-sobald verfügbar) — Farbe je Methode, Strichlierung als Zweitkodierung, ein
-gemeinsames Windfeld für alle Methoden. Der Querschnitt zeigt dann alle
-z(t)-Kurven in einem Streifen über dem Gelände des Referenzpfads (erste
-gewählte Methode).
+Die Berechnungsart wird über die **Methoden-Häkchen** gewählt (konstante
+Höhe, isobar, isentrop, Modell-w sobald verfügbar). Mehrere Höhen ×  eine
+Methode oder eine Höhe × mehrere Methoden — beides zugleich lehnt die App
+mit Hinweis ab (unlesbar). Bei mehreren Methoden kodiert die Farbe die
+Methode (plus Strichlierung als Zweitkodierung), alle Methoden teilen sich
+ein Windfeld, und der Querschnitt zeigt die z(t)-Kurven in einem Streifen
+über dem Gelände des Referenzpfads (erste gewählte Methode).
 
 Der **Live-Modus** rechnet genau eine Trajektorie, die dem Höhenschieber
 folgt: Schieber bewegen → Neuberechnung (entprellt, ~200 ms). Das Windfeld
@@ -82,7 +83,7 @@ plus die Zeitmarken als Points mit Wind.
   Gitterpunkten, vertikal linear in der Höhe zwischen den nativen ICON-Leveln,
   zeitlich linear zwischen den Stundenterminen. Immer komponentenweise (u, v) —
   nie über Betrag/Richtung.
-- **Vertikalbewegung** (wie HYSPLIT wählbar):
+- **Vertikalbewegung** (wie HYSPLIT wählbar, per Methoden-Häkchen):
   - *konstante Höhe* — „AGL" geländefolgend über Grund, „AMSL" absolut über NN
   - *isobar* — am Startpunkt wird der Druck p₀ in der Starthöhe diagnostiziert,
     die Trajektorie folgt dann der p₀-Fläche (Druck-Interpolation in ln p)

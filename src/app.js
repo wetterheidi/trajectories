@@ -38,7 +38,6 @@ function persist() {
   const s = {
     model: el("model").value,
     refmode: el("refmode").value,
-    vmotion: el("vmotion").value,
     markerIntervalSec: +el("markerint").value || 3600,
     duration: +el("duration").value || 12,
     direction: el("direction").value,
@@ -50,7 +49,6 @@ function persist() {
     baseLayer: activeBaseLayer,
     units: { ...unitState },
     liveMode: el("livemode").checked,
-    compareMode: el("comparemode").checked,
     methods: selectedMethods(),
     metExtras: el("metextras").checked,
   };
@@ -183,40 +181,31 @@ const liveRunDebounced = debounce(liveRun, 200);
 
 function applyModeUI() {
   const live = el("livemode").checked;
-  const compare = el("comparemode").checked;
-  const single = live || compare;
-  el("heightlist").hidden = single;
-  el("addheight").hidden = single;
-  el("methodrow").hidden = !compare;
-  el("vmotionrow").hidden = compare;
-  el("heightslabel").innerHTML = single
-    ? `Starthöhe <span class="hint">(${live ? "Live-Modus" : "Methodenvergleich"})</span>`
+  el("heightlist").hidden = live;
+  el("addheight").hidden = live;
+  el("heightslabel").innerHTML = live
+    ? 'Starthöhe <span class="hint">(Live-Modus)</span>'
     : 'Starthöhen <span class="hint">(max. 8)</span>';
 }
 
 el("livemode").addEventListener("change", () => {
-  if (el("livemode").checked) el("comparemode").checked = false;
   applyModeUI();
   state.live = null;
   persist();
   liveRun();
 });
 
-el("comparemode").addEventListener("change", () => {
-  if (el("comparemode").checked) el("livemode").checked = false;
-  applyModeUI();
-  state.live = null;
-  persist();
-});
-
-// --- Methodenvergleich: Auswahl der Berechnungsarten ------------------------
+// --- Methoden (Berechnungsarten): eine oder mehrere per Häkchen -------------
 for (const m of METHODS) {
   const label = document.createElement("label");
   label.dataset.key = m.key;
   label.innerHTML =
-    `<input type="checkbox" value="${m.key}" ${m.key !== "z3d" ? "checked" : ""}>` +
+    `<input type="checkbox" value="${m.key}" ${m.key === "height" ? "checked" : ""}>` +
     `<span class="chip" style="background:${m.color}"></span>${m.label}`;
-  label.querySelector("input").addEventListener("change", persist);
+  label.querySelector("input").addEventListener("change", () => {
+    state.live = null; // andere Methoden brauchen ggf. andere Variablen
+    persist();
+  });
   el("methodlist").appendChild(label);
 }
 
@@ -264,10 +253,9 @@ for (const min of MARKER_INTERVALS) {
 // --- Übrige Einstellungen wiederherstellen und Änderungen speichern ---------
 if (MODELS[saved.model]) el("model").value = saved.model;
 if (["agl", "amsl"].includes(saved.refmode)) el("refmode").value = saved.refmode;
-if (["height", "pressure", "theta"].includes(saved.vmotion)) el("vmotion").value = saved.vmotion;
 if (["1", "-1"].includes(saved.direction)) el("direction").value = saved.direction;
 if (Number.isFinite(saved.duration)) el("duration").value = saved.duration;
-for (const id of ["refmode", "vmotion", "markerint", "direction", "duration", "heightinput"]) {
+for (const id of ["refmode", "markerint", "direction", "duration", "heightinput"]) {
   el(id).addEventListener("change", persist);
 }
 
@@ -284,17 +272,6 @@ async function updateWDetection() {
   }
   wVarPrefix = wPrefixByModel.get(modelKey);
   if (modelKey !== el("model").value) return; // Modell wurde inzwischen gewechselt
-  const opt = el("vmotion").querySelector('option[value="z3d"]');
-  opt.disabled = !wVarPrefix;
-  opt.textContent = wVarPrefix
-    ? "Modell-Vertikalbewegung"
-    : "Modell-Vertikalbewegung (Server liefert noch kein w)";
-  if (wVarPrefix && saved.vmotion === "z3d" && el("vmotion").value !== "z3d") {
-    el("vmotion").value = "z3d";
-  } else if (!wVarPrefix && el("vmotion").value === "z3d") {
-    el("vmotion").value = "height";
-  }
-  // Auch das 3D-Häkchen im Methodenvergleich mitschalten.
   const mLabel = el("methodlist").querySelector('label[data-key="z3d"]');
   if (mLabel) {
     mLabel.querySelector("input").disabled = !wVarPrefix;
@@ -328,10 +305,14 @@ el("unitheight").addEventListener("change", onUnitsChange);
 el("unitwind").addEventListener("change", onUnitsChange);
 
 if (saved.liveMode) el("livemode").checked = true;
-if (saved.compareMode && !saved.liveMode) el("comparemode").checked = true;
-if (Array.isArray(saved.methods)) {
+if (Array.isArray(saved.methods) && saved.methods.length) {
   for (const c of el("methodlist").querySelectorAll("input")) {
     c.checked = saved.methods.includes(c.value);
+  }
+} else if (["pressure", "theta"].includes(saved.vmotion)) {
+  // Migration: früher gab es statt der Häkchen ein Vertikalbewegungs-Menü.
+  for (const c of el("methodlist").querySelectorAll("input")) {
+    c.checked = c.value === saved.vmotion;
   }
 }
 applyModeUI();
@@ -418,16 +399,20 @@ async function runTrajectories() {
   const model = MODELS[modelKey];
   const { lat, lon } = state.start;
   const liveMode = el("livemode").checked;
-  const compareMode = el("comparemode").checked;
-  const heights = liveMode || compareMode
+  const heights = liveMode
     ? [Math.max(1, Math.round(heightFromDisplay(+input.value) || 1000))]
     : [...heightColors.keys()].sort((a, b) => a - b);
-  const methods = compareMode ? selectedMethods() : null;
+  const methods = selectedMethods();
+  // Mehrere Methoden ergeben nur bei genau einer Starthöhe eine lesbare
+  // Darstellung (Farbe kodiert dann die Methode statt der Höhe).
+  const compareMode = methods.length > 1;
   const markerIntervalSec = +el("markerint").value;
   const mode = el("refmode").value;
-  const vmotion = el("vmotion").value;
-  if (compareMode && !methods.length) {
+  if (!methods.length) {
     return setStatus("Bitte mindestens eine Methode wählen.", true);
+  }
+  if (compareMode && heights.length > 1) {
+    return setStatus("Mehrere Methoden bitte mit genau einer Starthöhe kombinieren.", true);
   }
   const direction = +el("direction").value;
   const duration = Math.min(72, Math.max(1, +el("duration").value || 12));
@@ -456,8 +441,7 @@ async function runTrajectories() {
     // Signatur (Modell, Vertikaloption, Zeitfenster, Richtung, Startregion)
     // gleich bleibt und die Höhe ins geladene Levelfenster passt.
     const metExtras = el("metextras").checked;
-    const vmotionArg = compareMode ? methods : vmotion;
-    const sig = [modelKey, vmotion, t0Ms, duration, direction, metExtras,
+    const sig = [modelKey, methods.join("+"), t0Ms, duration, direction, metExtras,
       Math.round(lat), Math.round(lon)].join("|");
     let wf;
     if (liveMode && state.live?.sig === sig && heights[0] <= state.live.spanTop) {
@@ -466,19 +450,18 @@ async function runTrajectories() {
       wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
       const tEnd = t0Ms + direction * duration * 3600e3;
       const spanTop = liveMode ? Math.max(6000, ...heights) : Math.max(...heights);
-      await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotionArg, metExtras);
+      await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), methods, metExtras);
       state.live = liveMode ? { wf, sig, spanTop } : null;
       if (DEBUG) {
-        console.debug(`[traj] Modell ${modelKey}, Vertikaloption ${vmotion}, ` +
+        console.debug(`[traj] Modell ${modelKey}, Methoden ${methods.join("+")}, ` +
           `Levelfenster ${wf.levels.at(-1)}–${wf.levels[0]} (${wf.levels.length} Level), ` +
           `Zeitfenster ${wf.startDate}…${wf.endDate}`);
       }
     }
 
-    // Im Vergleichsmodus: eine Höhe, eine Trajektorie je Methode.
-    const jobs = compareMode
-      ? methods.map((method) => ({ heightM: heights[0], method }))
-      : heights.map((heightM) => ({ heightM, method: vmotion }));
+    // Entweder mehrere Höhen × eine Methode oder eine Höhe × mehrere
+    // Methoden (oben abgesichert).
+    const jobs = heights.flatMap((heightM) => methods.map((method) => ({ heightM, method })));
 
     const runs = [];
     for (const { heightM, method } of jobs) {
@@ -513,7 +496,7 @@ async function runTrajectories() {
     // Strichlücken erschiene Weiß statt der darunterliegenden Linie.
     for (const run of runs) drawCasing(run.r);
     for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash);
-    state.lastRuns = { runs, modelKey, mode, vmotion, t0Ms, duration, direction };
+    state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = runs.length === 0;
 
     // Querschnitt: Modellgelände entlang jedes Pfades aus dem Punkt-Cache.
@@ -654,7 +637,7 @@ el("download").addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
-function buildGeoJSON({ runs, modelKey, mode, vmotion, t0Ms, duration, direction }) {
+function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
   const rd = (x) => Math.round(x * 1e5) / 1e5;
   const round1 = (x) => Number.isFinite(x) ? Math.round(x * 10) / 10 : null;
   const iso = (ms) => new Date(ms).toISOString();
@@ -671,7 +654,7 @@ function buildGeoJSON({ runs, modelKey, mode, vmotion, t0Ms, duration, direction
         label,
         start_height_m: heightM,
         height_reference: mode,
-        vertical_motion: method ?? vmotion,
+        vertical_motion: method,
         model: modelKey,
         direction: direction > 0 ? "forward" : "backward",
         start_time: iso(t0Ms),
