@@ -685,6 +685,15 @@ function showCrossSection(show) {
   }
 }
 
+// --- Mobiles Bedienfeld (Bottom-Sheet, ein-/ausklappbar) --------------------
+function setPanelCollapsed(collapsed) {
+  el("panel").classList.toggle("collapsed", collapsed);
+  el("paneltoggle").textContent = collapsed ? "▴" : "▾";
+  el("paneltoggle").setAttribute("aria-expanded", String(!collapsed));
+}
+el("paneltoggle").addEventListener("click", () =>
+  setPanelCollapsed(!el("panel").classList.contains("collapsed")));
+
 el("xsecbtn").addEventListener("click", () => showCrossSection(el("xsec").hidden));
 el("xsec-close").addEventListener("click", () => showCrossSection(false));
 window.addEventListener("resize", () => {

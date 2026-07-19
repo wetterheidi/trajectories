@@ -24,7 +24,17 @@ html, body {
   padding: 12px 14px;
 }
 
-#panel h1 { font-size: 16px; margin: 0 0 10px; }
+#panelhead { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; }
+#panel h1 { font-size: 16px; margin: 0; }
+#paneltoggle {
+  display: none;
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: #52514e;
+  cursor: pointer;
+  padding: 2px 8px;
+}
 
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .label { font-weight: 600; }
@@ -254,3 +264,68 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 #v3d-cam button:hover { background: #fff; }
+
+/* --- Mobil: Panel als Bottom-Sheet, Overlays bildschirmfüllend ------------- */
+@media (max-width: 700px), (max-height: 500px) {
+  #panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 60dvh;
+    border-radius: 12px 12px 0 0;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    transition: max-height 0.2s ease;
+  }
+  #paneltoggle { display: block; }
+  #panelhead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: -12px -14px 10px;
+    padding: 10px 14px;
+    background: rgba(252, 252, 251, 0.96);
+  }
+  #panel.collapsed {
+    max-height: 46px;
+    overflow: hidden;
+  }
+
+  /* Touch-Ziele vergrößern; 16px verhindert den Auto-Zoom von iOS Safari. */
+  select, input[type="number"], input[type="password"], button { font-size: 16px; }
+  select, input[type="number"] { padding: 6px 8px; }
+  #run { padding: 12px; }
+  #download, #xsecbtn, #view3dbtn { padding: 10px; }
+  .addheight button { width: 40px; height: 36px; }
+  .height-item .rm { font-size: 18px; padding: 4px 8px; }
+  input[type="range"] { height: 28px; }
+  #methodlist, #heightlist { grid-template-columns: 1fr; }
+  #methodlist input[type="checkbox"], #livemode, #metextras {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Querschnitt über dem (ggf. eingeklappten) Panel, volle Breite. */
+  #xsec {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1200;
+    border-radius: 12px 12px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* 3D-Ansicht bildschirmfüllend; Maus-Hinweise sind auf Touch nutzlos. */
+  #view3d {
+    inset: 0;
+    border-radius: 0;
+    z-index: 1300;
+  }
+  .v3d-head { gap: 8px; padding: 8px 10px; }
+  #v3d-mousehint { display: none; }
+  #v3d-cam button { width: 40px; height: 40px; font-size: 18px; }
+
+  /* Leaflet-Zoomknöpfe nicht unter dem Panel verstecken. */
+  .leaflet-top.leaflet-left { top: env(safe-area-inset-top); }
+}

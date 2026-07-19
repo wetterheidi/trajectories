@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Windtrajektorien — ICON-EU / ICON-D2</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%231c5cab'/%3E%3Cpath d='M11 48 C 24 46, 29 35, 34 27 S 47 13, 53 11' fill='none' stroke='%23ffffff' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='48' r='6.5' fill='%23ffffff'/%3E%3Ccircle cx='34' cy='27' r='4.5' fill='%23ffffff' stroke='%231c5cab' stroke-width='2'/%3E%3Ccircle cx='53' cy='11' r='4.5' fill='%23ffffff' stroke='%231c5cab' stroke-width='2'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -13,7 +13,10 @@
   <div id="map"></div>
 
   <div id="panel">
-    <h1>Windtrajektorien</h1>
+    <div id="panelhead">
+      <h1>Windtrajektorien</h1>
+      <button id="paneltoggle" title="Bedienfeld ein-/ausklappen" aria-expanded="true">▾</button>
+    </div>
 
     <label class="row">Modell
       <select id="model">
@@ -139,7 +142,7 @@
           <option value="osm">OpenStreetMap</option>
         </select>
       </label>
-      <span class="hint">Ziehen = verschieben · Strg+Ziehen = kippen/drehen · Scrollen = Zoom</span>
+      <span class="hint" id="v3d-mousehint">Ziehen = verschieben · Strg+Ziehen = kippen/drehen · Scrollen = Zoom</span>
       <span id="v3d-note" class="hint"></span>
       <button id="v3d-close" title="Schließen">×</button>
     </div>
