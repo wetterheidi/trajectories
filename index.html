@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Windtrajektorien — ICON-EU / ICON-D2</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="panel">
+    <h1>Windtrajektorien</h1>
+
+    <label class="row">Modell
+      <select id="model">
+        <option value="icon_eu" selected>ICON-EU (~6,5 km, Europa)</option>
+        <option value="icon_d2">ICON-D2 (~2,2 km, Mitteleuropa)</option>
+      </select>
+    </label>
+
+    <div class="row">
+      <span class="label">Startpunkt</span>
+      <span id="startpos" class="mono">Karte anklicken</span>
+    </div>
+
+    <div class="row">
+      <span class="label">Startzeit <span class="hint">(UTC)</span></span>
+      <span id="timelabel" class="mono">–</span>
+    </div>
+    <input type="range" id="timeslider" min="0" max="0" step="1" />
+
+    <div class="grid2">
+      <label>Dauer (h)
+        <input type="number" id="duration" min="1" max="72" step="1" value="12" />
+      </label>
+      <label>Richtung
+        <select id="direction">
+          <option value="1" selected>vorwärts</option>
+          <option value="-1">rückwärts</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="row">Vertikalbewegung
+      <select id="vmotion">
+        <option value="height" selected>konstante Höhe</option>
+        <option value="pressure">isobar (konst. Druck)</option>
+        <option value="theta">isentrop (konst. θ)</option>
+        <option value="z3d" disabled>Modell-Vertikalbewegung</option>
+      </select>
+    </label>
+
+    <div class="grid2">
+      <label>Starthöhen-Referenz
+        <select id="refmode">
+          <option value="agl" selected>über Grund (AGL)</option>
+          <option value="amsl">über NN (AMSL)</option>
+        </select>
+      </label>
+      <label>Markenabstand
+        <select id="markerint"></select>
+      </label>
+    </div>
+
+    <div class="label">Starthöhen <span class="hint">(max. 8)</span></div>
+    <div id="heightlist"></div>
+    <div class="addheight">
+      <input type="range" id="heightslider" />
+      <input type="number" id="heightinput" class="mono" />
+      <button id="addheight" title="Höhe hinzufügen">+</button>
+    </div>
+
+    <button id="run" disabled>Trajektorien berechnen</button>
+    <div id="status"></div>
+    <div id="results"></div>
+    <button id="download" class="secondary" disabled>GeoJSON herunterladen</button>
+    <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
+
+    <div class="footer">
+      Daten: DWD ICON via open-meteo.mah.priv.at ·
+      Petterssen-Schema, bilinear/linear interpoliert
+      <span id="runinfo"></span>
+    </div>
+  </div>
+
+  <div id="xsec" hidden>
+    <div class="xsec-head">
+      <span>Querschnitt entlang der Trajektorien</span>
+      <span class="hint">Höhe über NN · Gelände entlang des jeweiligen Pfades</span>
+      <button id="xsec-close" title="Schließen">×</button>
+    </div>
+    <div id="xsec-body"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

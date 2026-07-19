@@ -1,0 +1,17 @@
+{
+  "name": "trajectories",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node test/integrator.test.mjs",
+    "test:live": "node test/live-smoke.mjs",
+    "deploy": "bash scripts/deploy-hetzner.sh"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
