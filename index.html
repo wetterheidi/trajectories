@@ -25,6 +25,10 @@
       <span class="label">Startpunkt</span>
       <span id="startpos" class="mono">Karte anklicken</span>
     </div>
+    <div class="row">
+      <span class="label">Gelände <span class="hint">(Modell, am Start)</span></span>
+      <span id="startelev" class="mono">–</span>
+    </div>
 
     <div class="row">
       <span class="label">Startzeit <span class="hint">(UTC)</span></span>
@@ -71,8 +75,10 @@
     <div class="addheight">
       <input type="range" id="heightslider" />
       <input type="number" id="heightinput" class="mono" />
+      <span id="heightsuffix" class="hint mono"></span>
       <button id="addheight" title="Höhe hinzufügen">+</button>
     </div>
+    <div id="heighthint" class="hint mono"></div>
 
     <button id="run" disabled>Trajektorien berechnen</button>
     <div id="status"></div>

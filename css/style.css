@@ -77,6 +77,9 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   cursor: pointer;
 }
 .addheight button:disabled { color: #9c9b95; cursor: default; }
+#heightsuffix { flex: none; }
+#heighthint { min-height: 1.2em; margin: -6px 0 8px; }
+#heighthint.error { color: #b3261e; font-weight: 600; }
 
 #run {
   width: 100%;

@@ -156,10 +156,15 @@ function applySliderCfg() {
 }
 applySliderCfg();
 slider.value = input.value = saved.heightInput ?? Math.round(heightToDisplay(1000));
-slider.addEventListener("input", () => { input.value = slider.value; liveRunDebounced(); });
+slider.addEventListener("input", () => {
+  input.value = slider.value;
+  updateHeightContext();
+  liveRunDebounced();
+});
 slider.addEventListener("change", persist);
 input.addEventListener("input", () => {
   slider.value = Math.min(+input.value || +slider.min, +slider.max);
+  updateHeightContext();
   liveRunDebounced();
 });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter") addHeight(heightFromDisplay(+input.value)); });
@@ -298,6 +303,7 @@ function onUnitsChange() {
   input.value = Math.min(Math.max(disp, cfg.min), cfg.inputMax);
   slider.value = Math.min(+input.value, cfg.max);
   renderHeightList();
+  updateHeightContext();
   if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
   persist();
 }
@@ -323,6 +329,8 @@ el("metextras").addEventListener("change", () => {
   persist();
 });
 
+updateHeightContext();
+
 settingsReady = true;
 
 // --- Startpunkt per Klick / Marker ziehen -----------------------------------
@@ -342,6 +350,61 @@ function setStart(lat, lon) {
   }
   updateRunButton();
   persist();
+  fetchStartElevation();
+}
+
+// Modell-Geländehöhe am Startort — bewusst aus der Forecast-Antwort des
+// gewählten Modells (Modellorographie), damit die Anzeige zu dem passt,
+// womit die Trajektorien rechnen.
+async function fetchStartElevation() {
+  const s = state.start;
+  if (!s) return;
+  const model = MODELS[el("model").value];
+  state.startElevation = null;
+  updateHeightContext();
+  try {
+    const params = new URLSearchParams({
+      latitude: s.lat.toFixed(5),
+      longitude: s.lon.toFixed(5),
+      hourly: `wind_speed_level${model.nLevels}`,
+      models: model.apiModel,
+      forecast_days: "1",
+    });
+    const d = await (await fetch(`${API_BASE}/v1/forecast?${params}`)).json();
+    if (Number.isFinite(d.elevation) && state.start === s) {
+      state.startElevation = d.elevation;
+      updateHeightContext();
+    }
+  } catch {
+    /* Anzeige bleibt leer */
+  }
+}
+
+/** Macht den Bezug der Starthöhe sichtbar: Einheit+Referenz am Eingabefeld,
+ *  Geländehöhe am Start und die Umrechnung AGL <-> NN für den aktuellen
+ *  Reglerwert. */
+function updateHeightContext() {
+  const mode = el("refmode").value;
+  el("heightsuffix").textContent = `${heightUnit()} ${mode === "agl" ? "AGL" : "NN"}`;
+  const elev = state.startElevation;
+  el("startelev").textContent = elev == null ? "–" : `${fmtHeight(elev)} NN`;
+  const hint = el("heighthint");
+  if (elev == null) {
+    hint.textContent = "";
+    hint.classList.remove("error");
+    return;
+  }
+  const h = heightFromDisplay(+input.value || 0);
+  if (mode === "agl") {
+    hint.textContent = `${fmtHeight(h)} über Grund ≈ ${fmtHeight(h + elev)} NN am Startort`;
+    hint.classList.remove("error");
+  } else if (h < elev) {
+    hint.textContent = `${fmtHeight(h)} NN liegt am Startort unter Grund!`;
+    hint.classList.add("error");
+  } else {
+    hint.textContent = `${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund am Startort`;
+    hint.classList.remove("error");
+  }
 }
 
 // --- Zeitschieber aus meta.json des gewählten Modells -----------------------
@@ -385,7 +448,9 @@ el("model").addEventListener("change", () => {
   persist();
   loadMeta();
   updateWDetection();
+  fetchStartElevation(); // Modellorographie unterscheidet sich je Modell
 });
+el("refmode").addEventListener("change", updateHeightContext);
 
 function updateRunButton() {
   el("run").disabled = state.running || !state.start || !state.meta;
