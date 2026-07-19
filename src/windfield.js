@@ -16,12 +16,13 @@ const KAPPA = 0.2854; // R/cp trockene Luft
  *   {type:"z3d",      value: m AMSL}                3D mit Modell-w
  */
 export class WindField {
-  constructor(modelKey, { fetchImpl, wVarPrefix = null } = {}) {
+  constructor(modelKey, { fetchImpl, wVarPrefix = null, debug = false } = {}) {
     this.model = MODELS[modelKey];
     if (!this.model) throw new Error(`Unbekanntes Modell: ${modelKey}`);
     this.modelKey = modelKey;
     this.fetch = fetchImpl || fetch.bind(globalThis);
     this.wVarPrefix = wVarPrefix; // z. B. "vertical_velocity", sobald verfügbar
+    this.debug = debug; // Konsolen-Monitor: loggt jeden Interpolationsaufruf
     this.points = new Map();
     this.levels = null;
     this.times = null;
@@ -32,17 +33,24 @@ export class WindField {
     this.pending = new Map();
   }
 
-  /** Prüft je Modell, ob der Server Modell-Vertikalgeschwindigkeit anbietet. */
+  /** Prüft je Modell, ob der Server Modell-Vertikalgeschwindigkeit anbietet.
+   *  Zählt nur, wenn auch echte Werte kommen — eine Variable, die (noch)
+   *  ausschließlich null liefert, gilt als nicht verfügbar. */
   static async detectWVariable(modelKey = "icon_eu", fetchImpl = fetch.bind(globalThis)) {
     const model = MODELS[modelKey];
     for (const prefix of ["vertical_velocity", "w", "wind_w_component", "wz", "omega"]) {
       try {
+        const varName = `${prefix}_level${model.nLevels - 5}`;
         const url = `${API_BASE}/v1/forecast?latitude=50&longitude=10` +
-          `&hourly=${prefix}_level${model.nLevels - 5}&models=${model.apiModel}&forecast_days=1`;
+          `&hourly=${varName}&models=${model.apiModel}&forecast_days=1`;
         const resp = await fetchImpl(url);
         if (!resp.ok) continue;
         const d = await resp.json();
-        if (!d.error) return prefix;
+        if (d.error) continue;
+        const vals = d.hourly?.[varName];
+        if (Array.isArray(vals) && vals.some((v) => v != null && Number.isFinite(v))) {
+          return prefix;
+        }
       } catch {
         /* Kandidat nicht verfügbar */
       }
@@ -238,6 +246,7 @@ export class WindField {
     if (!tt) return { error: "Ende des Datenzeitraums erreicht" };
 
     let U = 0, V = 0, W = 0, Z = 0;
+    const dbg = this.debug ? [] : null;
     for (const [wt, a, b] of this.bilinearWeights(lat, lon)) {
       const p = this.points.get(this.key(a, b));
       if (!p) return { error: "Datenlücke im Gitter" };
@@ -247,9 +256,39 @@ export class WindField {
       V += wt * c.v;
       W += wt * (c.w ?? 0);
       Z += wt * (p.elevation + c.hAgl);
+      if (dbg) dbg.push(this.debugCorner(p, c, wt, a, b, tt));
     }
     if (!Number.isFinite(U) || !Number.isFinite(V)) return { error: "Fehlende Winddaten (Modelllauf unvollständig)" };
+    if (dbg) {
+      const tgt = `${target.type}=${Math.round(target.value)}${target.mode ? ` ${target.mode}` : ""}`;
+      console.debug(
+        `[traj] ${new Date(tMs).toISOString().slice(0, 16)}Z ` +
+        `${lat.toFixed(4)}°N ${lon.toFixed(4)}°E  ${tgt}  ` +
+        `u=${U.toFixed(2)} v=${V.toFixed(2)}${this.needs.w ? ` w=${W.toFixed(3)}` : ""} m/s  ` +
+        `z=${Math.round(Z)} m NN`,
+      );
+      console.table(dbg);
+    }
     return { u: U, v: V, w: this.needs.w ? W : undefined, zAmsl: Z };
+  }
+
+  /** Eine Zeile des Konsolen-Monitors: welcher Gitterpunkt mit welchem
+   *  Gewicht, welche ICON-Level als Bracket, und p/T dort (falls geladen). */
+  debugCorner(p, c, wt, iLat, iLon, tt) {
+    const g = this.model.grid;
+    const row = {
+      Gitterpunkt: `${(iLat * g).toFixed(3)},${(iLon * g).toFixed(3)}`,
+      Gewicht: +wt.toFixed(3),
+      Level: `${this.levels[c.k1]}–${this.levels[c.k0]}`,
+      "hAGL-Bracket": `${Math.round(p.hAgl[c.k0])}–${Math.round(p.hAgl[c.k1])} m`,
+      hw: +c.hw.toFixed(3),
+      "u/v [m/s]": `${c.u.toFixed(2)}/${c.v.toFixed(2)}`,
+    };
+    const at = (arr) => levelValueAtT(arr[c.k0], tt) + c.hw * (levelValueAtT(arr[c.k1], tt) - levelValueAtT(arr[c.k0], tt));
+    if (p.p) row["p [hPa]"] = +at(p.p).toFixed(1);
+    if (p.T) row["T [°C]"] = +(at(p.T) - 273.15).toFixed(1);
+    if (p.w) row["w [m/s]"] = +at(p.w).toFixed(3);
+    return row;
   }
 
   /** Modell-Geländehöhe (bilinear) aus dem Cache — nur für Positionen, an
@@ -321,6 +360,7 @@ function resolveOnTarget(pt, target, tt) {
     u: u0 + hw * (u1 - u0),
     v: v0 + hw * (v1 - v0),
     hAgl: pt.hAgl[k0] + hw * (pt.hAgl[k1] - pt.hAgl[k0]),
+    k0, k1, hw, // fürs Debug-Protokoll
   };
   if (pt.w) {
     const w0 = levelValueAtT(pt.w[k0], tt), w1 = levelValueAtT(pt.w[k1], tt);

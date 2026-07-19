@@ -107,6 +107,9 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 .result-line { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .result-line .note { color: #52514e; font-size: 12px; }
 
+#settings { margin-top: 8px; }
+#settings summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+
 .footer { margin-top: 10px; font-size: 11px; color: #52514e; line-height: 1.5; }
 
 .marker-tip { font-variant-numeric: tabular-nums; }

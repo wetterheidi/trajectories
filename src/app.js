@@ -5,6 +5,14 @@ import {
 import { WindField } from "./windfield.js";
 import { computeTrajectory } from "./integrator.js";
 import { renderCrossSection } from "./crosssection.js";
+import {
+  setUnits, unitState, fmtHeight, fmtWind,
+  heightToDisplay, heightFromDisplay, heightSliderCfg,
+} from "./units.js";
+
+// Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
+const DEBUG = new URLSearchParams(location.search).has("debug") ||
+  localStorage.getItem("trajDebug") === "1";
 
 /* global L */
 
@@ -22,6 +30,7 @@ function loadSettings() {
 }
 
 const saved = loadSettings();
+setUnits(saved.units || {});
 let settingsReady = false; // erst nach vollständiger Wiederherstellung speichern
 
 function persist() {
@@ -39,6 +48,7 @@ function persist() {
     timeHour: +el("timeslider").value || null,
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
+    units: { ...unitState },
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -130,17 +140,25 @@ function renderHeightList() {
 }
 
 const slider = el("heightslider"), input = el("heightinput");
-slider.min = input.min = HEIGHT_MIN;
-slider.max = 6000; // Feinbereich; größere Werte über das Zahlenfeld
-slider.step = 10;
-input.max = HEIGHT_MAX;
-input.step = 10;
-slider.value = input.value = saved.heightInput ?? 1000;
+
+// Schieber/Zahlenfeld arbeiten in der Anzeige-Einheit (m oder ft);
+// intern wird alles in Metern geführt.
+function applySliderCfg() {
+  const cfg = heightSliderCfg();
+  slider.min = cfg.min;
+  slider.max = cfg.max; // Feinbereich; größere Werte über das Zahlenfeld
+  slider.step = cfg.step;
+  input.min = cfg.min;
+  input.max = cfg.inputMax;
+  input.step = cfg.step;
+}
+applySliderCfg();
+slider.value = input.value = saved.heightInput ?? Math.round(heightToDisplay(1000));
 slider.addEventListener("input", () => { input.value = slider.value; });
 slider.addEventListener("change", persist);
-input.addEventListener("input", () => { slider.value = Math.min(+input.value || HEIGHT_MIN, +slider.max); });
-input.addEventListener("keydown", (e) => { if (e.key === "Enter") addHeight(+input.value); });
-el("addheight").addEventListener("click", () => addHeight(+input.value));
+input.addEventListener("input", () => { slider.value = Math.min(+input.value || +slider.min, +slider.max); });
+input.addEventListener("keydown", (e) => { if (e.key === "Enter") addHeight(heightFromDisplay(+input.value)); });
+el("addheight").addEventListener("click", () => addHeight(heightFromDisplay(+input.value)));
 
 // Gespeicherte Höhenliste wiederherstellen (Farben nur, wenn sie noch zur
 // Palette gehören und eindeutig sind — sonst neu zuweisen), sonst Standard.
@@ -209,6 +227,26 @@ updateWDetection();
 if (saved.start && Number.isFinite(saved.start.lat) && Number.isFinite(saved.start.lon)) {
   setStart(saved.start.lat, saved.start.lon);
 }
+
+// Einheiten-Auswahl: Wert des Höhenfelds in die neue Einheit umrechnen,
+// Höhenliste und (falls offen) Querschnitt neu beschriften.
+el("unitheight").value = unitState.height;
+el("unitwind").value = unitState.wind;
+function onUnitsChange() {
+  const meters = heightFromDisplay(+input.value || 0);
+  setUnits({ height: el("unitheight").value, wind: el("unitwind").value });
+  applySliderCfg();
+  const cfg = heightSliderCfg();
+  const disp = Math.round(heightToDisplay(meters) / cfg.step) * cfg.step;
+  input.value = Math.min(Math.max(disp, cfg.min), cfg.inputMax);
+  slider.value = Math.min(+input.value, cfg.max);
+  renderHeightList();
+  if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
+  persist();
+}
+el("unitheight").addEventListener("change", onUnitsChange);
+el("unitwind").addEventListener("change", onUnitsChange);
+
 settingsReady = true;
 
 // --- Startpunkt per Klick / Marker ziehen -----------------------------------
@@ -310,9 +348,14 @@ async function runTrajectories() {
   setStatus("Berechne …");
 
   try {
-    const wf = new WindField(modelKey, { wVarPrefix });
+    const wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
     const tEnd = t0Ms + direction * duration * 3600e3;
     await wf.init(lat, lon, Math.max(...heights), Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotion);
+    if (DEBUG) {
+      console.debug(`[traj] Modell ${modelKey}, Vertikaloption ${vmotion}, ` +
+        `Levelfenster ${wf.levels.at(-1)}–${wf.levels[0]} (${wf.levels.length} Level), ` +
+        `Zeitfenster ${wf.startDate}…${wf.endDate}`);
+    }
 
     const runs = [];
     for (const heightM of heights) {
@@ -380,14 +423,13 @@ function drawTrajectory(r, color, label) {
     .bindTooltip(label, { sticky: true });
 
   for (const m of r.markers) {
-    const spd = Math.hypot(m.u, m.v) * 3.6;
     const dir = (Math.atan2(-m.u, -m.v) * 180 / Math.PI + 360) % 360;
-    const zLine = Number.isFinite(m.z) ? `<br>${Math.round(m.z)} m NN` : "";
+    const zLine = Number.isFinite(m.z) ? `<br>${fmtHeight(m.z)} NN` : "";
     L.circleMarker([m.lat, m.lon], {
       radius: 4, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1,
     }).addTo(state.layers).bindTooltip(
       `<div class="marker-tip">${fmtTime(m.tMs)}<br>${label}<br>` +
-      `${Math.round(spd)} km/h aus ${Math.round(dir)}°${zLine}</div>`,
+      `${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°${zLine}</div>`,
     );
   }
 }
@@ -490,10 +532,6 @@ function buildGeoJSON({ runs, modelKey, mode, vmotion, t0Ms, duration, direction
 // --- Helfer -----------------------------------------------------------------
 function colorFor(heightM) {
   return heightColors.get(heightM) || "#0b0b0b";
-}
-
-function fmtHeight(m) {
-  return `${m} m`;
 }
 
 function fmtTime(ms) {

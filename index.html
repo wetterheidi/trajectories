@@ -79,6 +79,25 @@
     <button id="download" class="secondary" disabled>GeoJSON herunterladen</button>
     <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
 
+    <details id="settings">
+      <summary>Einheiten</summary>
+      <div class="grid2">
+        <label>Höhe
+          <select id="unitheight">
+            <option value="m" selected>Meter (m)</option>
+            <option value="ft">Fuß (ft)</option>
+          </select>
+        </label>
+        <label>Wind
+          <select id="unitwind">
+            <option value="kmh" selected>km/h</option>
+            <option value="ms">m/s</option>
+            <option value="kt">Knoten (kt)</option>
+          </select>
+        </label>
+      </div>
+    </details>
+
     <div class="footer">
       Daten: DWD ICON via open-meteo.mah.priv.at ·
       Petterssen-Schema, bilinear/linear interpoliert

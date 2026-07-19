@@ -37,6 +37,16 @@ verschiedener Starthöhen laufen ja auseinander. Fadenkreuz-Hover zeigt Zeit,
 Höhen und Bodenhöhe über alle Streifen. Die Geländehöhen stammen aus den
 bereits gecachten Gitterpunkten (Modellorographie, keine zusätzlichen Abrufe).
 
+Unter „Einheiten" lassen sich Höhe (m/ft — gilt für Anzeige *und* Eingabe)
+und Windgeschwindigkeit (km/h, m/s, kt) umstellen; intern wird durchgehend
+SI gerechnet, der GeoJSON-Export bleibt SI.
+
+**Konsolen-Monitor:** `?debug=1` an die URL (oder `localStorage.trajDebug =
+"1"`) protokolliert jeden Interpolationsaufruf in der Browser-Konsole: Zeit,
+Position, Zielfläche, Ergebnis-Wind sowie je Gitterpunkt Bilinear-Gewicht,
+verwendetes ICON-Level-Bracket, Höhen, Interpolationsgewicht und (falls
+geladen) p, T und w.
+
 „GeoJSON herunterladen" exportiert die zuletzt berechneten Trajektorien als
 FeatureCollection: je Höhe eine LineString (mit Höhe als dritter Koordinate,
 Zeitstempeln je Stützpunkt und allen Berechnungs-Metadaten in den properties)

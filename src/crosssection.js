@@ -7,6 +7,8 @@
  * gehört. Reines SVG, ohne Abhängigkeiten.
  */
 
+import { fmtHeight, heightToDisplay, heightFromDisplay, heightUnit } from "./units.js";
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 const INK = "#0b0b0b";
 const INK_MUTED = "#52514e";
@@ -60,7 +62,12 @@ export function renderCrossSection(host, data) {
     );
   }
 
-  const yStep = niceStep((yMax - yMin) / 2.5);
+  svg.append(text(6, 11, `${heightUnit()} NN`, { anchor: "start", size: 10 }));
+
+  // Höhenlinien in der Anzeige-Einheit (m oder ft) rastern.
+  const dMin = heightToDisplay(yMin);
+  const dMax = heightToDisplay(yMax);
+  const yStep = niceStep((dMax - dMin) / 2.5);
   series.forEach((s, i) => {
     const top = i * stripH;
     const bottom = top + stripH;
@@ -68,10 +75,11 @@ export function renderCrossSection(host, data) {
     const y = (z) => bottom - ((z - yMin) / (yMax - yMin)) * (bottom - innerTop);
 
     // Höhenlinien + Labels je Streifen (gemeinsame Skala).
-    for (let z = Math.ceil(yMin / yStep) * yStep; z <= yMax; z += yStep) {
+    for (let zd = Math.ceil(dMin / yStep) * yStep; zd <= dMax; zd += yStep) {
+      const z = heightFromDisplay(zd);
       svg.append(
         mk("line", { x1: M.l, x2: W - M.r, y1: y(z), y2: y(z), stroke: GRID, "stroke-width": 1 }),
-        text(M.l - 6, y(z) + 3.5, `${z}`, { anchor: "end", size: 10 }),
+        text(M.l - 6, y(z) + 3.5, `${zd}`, { anchor: "end", size: 10 }),
       );
     }
 
@@ -128,9 +136,9 @@ export function renderCrossSection(host, data) {
     const tMs = t0Ms + direction * h * 3600e3;
     const rows = series.map((s) => {
       const p = nearest(s.pts, h);
-      const g = Number.isFinite(p.g) ? ` · Boden ${Math.round(p.g)} m` : "";
+      const g = Number.isFinite(p.g) ? ` · Boden ${fmtHeight(p.g)}` : "";
       return `<div><span class="chip" style="background:${s.color}"></span>` +
-        `${Math.round(p.z)} m NN${g}</div>`;
+        `${fmtHeight(p.z)} NN${g}</div>`;
     });
     tip.innerHTML = `<strong>${new Date(tMs).toISOString().slice(11, 16)}Z</strong>${rows.join("")}`;
     tip.hidden = false;
