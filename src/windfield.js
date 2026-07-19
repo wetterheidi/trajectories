@@ -466,7 +466,13 @@ function pressureBracket(pt, pTarget, tt) {
 function thetaBracket(pt, thTarget, tt) {
   const L = pt.hAgl.length;
   let thPrev = theta(levelValueAtT(pt.T[0], tt), levelValueAtT(pt.p[0], tt));
-  if (thTarget < thPrev) return { error: "Isentrope schneidet das Gelände" };
+  if (thTarget < thPrev) {
+    // Zwei Ursachen, hier nicht unterscheidbar: stabil geschichtet liegt die
+    // Isentrope wirklich im Gelände; in durchmischter Grenzschicht liegt die
+    // Boden-θ superadiabatisch über der Ziel-θ und die Fläche ist nicht
+    // eindeutig definiert.
+    return { error: "Boden-θ über Ziel-θ: Isentrope im Gelände oder Grenzschicht durchmischt" };
+  }
   for (let k = 1; k < L; k++) {
     const th = theta(levelValueAtT(pt.T[k], tt), levelValueAtT(pt.p[k], tt));
     if ((thPrev <= thTarget && thTarget <= th) || (th <= thTarget && thTarget <= thPrev)) {
