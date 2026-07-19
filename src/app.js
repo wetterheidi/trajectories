@@ -6,7 +6,7 @@ import { WindField } from "./windfield.js";
 import { computeTrajectory } from "./integrator.js";
 import { renderCrossSection } from "./crosssection.js";
 import {
-  setUnits, unitState, fmtHeight, fmtWind,
+  setUnits, unitState, fmtHeight, fmtWind, heightUnit,
   heightToDisplay, heightFromDisplay, heightSliderCfg,
 } from "./units.js";
 
