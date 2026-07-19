@@ -302,6 +302,9 @@ export class WindField {
       if (dbg) dbg.push(this.debugCorner(p, c, wt, a, b, tt));
     }
     if (!Number.isFinite(U) || !Number.isFinite(V)) return { error: "Fehlende Winddaten (Modelllauf unvollständig)" };
+    // Fehlendes w darf nicht stillschweigend zu NaN-Höhen führen — sauber
+    // stoppen statt physikalisch falsch weiterrechnen.
+    if (this.needs.w && !Number.isFinite(W)) return { error: "Modell-w fehlt am Rechenpunkt (null-Werte)" };
     let met;
     if (this.needs.met) {
       const tC = TK - 273.15;
@@ -432,6 +435,7 @@ function resolveOnTarget(pt, target, tt) {
 /** Höhen-Bracket; unterhalb des untersten Levels (~10 m) wird auf dieses
  *  geklammert. */
 function heightBracket(hAgl, hTarget) {
+  if (!Number.isFinite(hTarget)) return { error: "Ungültige Zielhöhe (Datenlücke)" };
   const L = hAgl.length;
   let k1 = 0;
   while (k1 < L && hAgl[k1] < hTarget) k1++;
