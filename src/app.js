@@ -483,20 +483,36 @@ async function runTrajectories() {
     const runs = [];
     for (const { heightM, method } of jobs) {
       const style = METHODS.find((m) => m.key === method);
-      setStatus(`Berechne ${compareMode ? style.label : fmtHeight(heightM)} …`);
-      const { target, label } = await makeTarget(wf, lat, lon, heightM, mode, method, t0Ms);
-      const r = await computeTrajectory({
-        windAt: wf.windAt.bind(wf),
-        lat0: lat, lon0: lon, target, t0Ms,
-        durationHours: duration, direction, gridMeters: model.gridMeters,
-        markerIntervalSec,
-      });
       const color = compareMode ? style.color : liveMode ? SERIES_COLORS[0] : colorFor(heightM);
       const dash = compareMode ? style.dash : null;
-      drawTrajectory(r, color, label, dash);
-      reportResult(r, heightM, color, label);
-      runs.push({ r, color, label, heightM, method, dash });
+      setStatus(`Berechne ${compareMode ? style.label : fmtHeight(heightM)} …`);
+      try {
+        const { target, label } = await makeTarget(wf, lat, lon, heightM, mode, method, t0Ms);
+        const r = await computeTrajectory({
+          windAt: wf.windAt.bind(wf),
+          lat0: lat, lon0: lon, target, t0Ms,
+          durationHours: duration, direction, gridMeters: model.gridMeters,
+          markerIntervalSec,
+        });
+        reportResult(r, heightM, color, label);
+        runs.push({ r, color, label, heightM, method, dash });
+      } catch (err) {
+        // Eine scheiternde Methode/Höhe soll die übrigen nicht mitreißen.
+        const line = document.createElement("div");
+        line.className = "result-line";
+        line.innerHTML = `<span class="chip" style="background:${color}"></span>` +
+          `${compareMode ? style.label : fmtHeight(heightM)} ` +
+          `<span class="note">Fehler: ${err.message}</span>`;
+        el("results").appendChild(line);
+      }
     }
+
+    // Zwei Zeichen-Durchgänge: erst alle weißen Unterlagen, dann alle
+    // Farblinien — sonst übermalt die Unterlage einer späteren Trajektorie
+    // die früheren, wo die Pfade (fast) übereinanderliegen, und in
+    // Strichlücken erschiene Weiß statt der darunterliegenden Linie.
+    for (const run of runs) drawCasing(run.r);
+    for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash);
     state.lastRuns = { runs, modelKey, mode, vmotion, t0Ms, duration, direction };
     el("download").disabled = runs.length === 0;
 
@@ -546,12 +562,18 @@ async function makeTarget(wf, lat, lon, heightM, mode, vmotion, t0Ms) {
   return { target: { type: "z3d", value: d.zAmsl }, label: `${fmtHeight(heightM)} ${ref} (3D)` };
 }
 
+// Weiße Unterlage als Kontrast-Ausgleich auf Kartenkacheln (eigener
+// Durchgang vor allen Farblinien, siehe runTrajectories).
+function drawCasing(r) {
+  if (r.points.length < 2) return;
+  L.polyline(r.points.map((p) => [p.lat, p.lon]), {
+    color: "#ffffff", weight: 6, opacity: 0.85, interactive: false,
+  }).addTo(state.layers);
+}
+
 function drawTrajectory(r, color, label, dash = null) {
   if (r.points.length < 2) return;
   const latlngs = r.points.map((p) => [p.lat, p.lon]);
-  // Weiße Unterlage als Kontrast-Ausgleich auf Kartenkacheln.
-  L.polyline(latlngs, { color: "#ffffff", weight: 6, opacity: 0.85, interactive: false })
-    .addTo(state.layers);
   L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash }).addTo(state.layers)
     .bindTooltip(label, { sticky: true });
 

@@ -47,10 +47,12 @@ export class WindField {
         if (!resp.ok) continue;
         const d = await resp.json();
         if (d.error) continue;
+        // Variable existiert: mit Werten -> verfügbar; nur null -> (noch)
+        // nicht verfügbar. Weitere Kandidatennamen dann nicht mehr proben.
         const vals = d.hourly?.[varName];
-        if (Array.isArray(vals) && vals.some((v) => v != null && Number.isFinite(v))) {
-          return prefix;
-        }
+        return Array.isArray(vals) && vals.some((v) => v != null && Number.isFinite(v))
+          ? prefix
+          : null;
       } catch {
         /* Kandidat nicht verfügbar */
       }
