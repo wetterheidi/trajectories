@@ -180,21 +180,32 @@ for (const id of ["refmode", "vmotion", "markerint", "direction", "duration", "h
   el(id).addEventListener("change", persist);
 }
 
-// Modell-Vertikalgeschwindigkeit: Option freischalten, sobald der Server
-// die Variable anbietet (Michael arbeitet daran).
+// Modell-Vertikalgeschwindigkeit: je Modell prüfen, ob der Server die
+// Variable anbietet, und die 3D-Option entsprechend schalten. Läuft beim
+// Start und bei jedem Modellwechsel (Ergebnis wird je Modell gecacht).
 let wVarPrefix = null;
-(async () => {
-  wVarPrefix = await WindField.detectWVariable("icon_eu");
-  const opt = el("vmotion").querySelector('option[value="z3d"]');
-  if (wVarPrefix) {
-    opt.disabled = false;
-    if (saved.vmotion === "z3d") {
-      el("vmotion").value = "z3d";
-    }
-  } else {
-    opt.textContent = "Modell-Vertikalbewegung (Server liefert noch kein w)";
+const wPrefixByModel = new Map();
+
+async function updateWDetection() {
+  const modelKey = el("model").value;
+  if (!wPrefixByModel.has(modelKey)) {
+    wPrefixByModel.set(modelKey, await WindField.detectWVariable(modelKey));
   }
-})();
+  wVarPrefix = wPrefixByModel.get(modelKey);
+  if (modelKey !== el("model").value) return; // Modell wurde inzwischen gewechselt
+  const opt = el("vmotion").querySelector('option[value="z3d"]');
+  opt.disabled = !wVarPrefix;
+  opt.textContent = wVarPrefix
+    ? "Modell-Vertikalbewegung"
+    : "Modell-Vertikalbewegung (Server liefert noch kein w)";
+  if (wVarPrefix && saved.vmotion === "z3d" && el("vmotion").value !== "z3d") {
+    el("vmotion").value = "z3d";
+  } else if (!wVarPrefix && el("vmotion").value === "z3d") {
+    el("vmotion").value = "height";
+  }
+}
+
+updateWDetection();
 if (saved.start && Number.isFinite(saved.start.lat) && Number.isFinite(saved.start.lon)) {
   setStart(saved.start.lat, saved.start.lon);
 }
@@ -259,6 +270,7 @@ el("timeslider").addEventListener("change", persist);
 el("model").addEventListener("change", () => {
   persist();
   loadMeta();
+  updateWDetection();
 });
 
 function updateRunButton() {
@@ -329,8 +341,8 @@ async function runTrajectories() {
       t0Ms,
       direction,
     };
+    // Querschnitt standardmäßig zu — nur der Knopf wird aktiv.
     el("xsecbtn").disabled = runs.length === 0;
-    if (runs.length) showCrossSection(true);
     setStatus("");
   } catch (err) {
     setStatus(`Fehler: ${err.message}`, true);

@@ -32,10 +32,10 @@ export class WindField {
     this.pending = new Map();
   }
 
-  /** Prüft, ob der Server Modell-Vertikalgeschwindigkeit anbietet. */
+  /** Prüft je Modell, ob der Server Modell-Vertikalgeschwindigkeit anbietet. */
   static async detectWVariable(modelKey = "icon_eu", fetchImpl = fetch.bind(globalThis)) {
     const model = MODELS[modelKey];
-    for (const prefix of ["vertical_velocity", "w"]) {
+    for (const prefix of ["vertical_velocity", "w", "wind_w_component", "wz", "omega"]) {
       try {
         const url = `${API_BASE}/v1/forecast?latitude=50&longitude=10` +
           `&hourly=${prefix}_level${model.nLevels - 5}&models=${model.apiModel}&forecast_days=1`;
