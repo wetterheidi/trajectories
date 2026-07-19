@@ -37,6 +37,26 @@ verschiedener Starthöhen laufen ja auseinander. Fadenkreuz-Hover zeigt Zeit,
 Höhen und Bodenhöhe über alle Streifen. Die Geländehöhen stammen aus den
 bereits gecachten Gitterpunkten (Modellorographie, keine zusätzlichen Abrufe).
 
+„3D-Ansicht" öffnet die zuletzt berechneten Trajektorien als Höhenlinien über
+echtem Gelände (CesiumJS, erst beim ersten Öffnen vom CDN geladen). Jede
+Trajektorie bekommt eine halbtransparente Wand zum Boden, die Zeitmarken sind
+anklickbare Punkte mit denselben Details wie in 2D. Der Überhöhungs-Schieber
+(×1–×20) skaliert Gelände und Trajektorien gemeinsam — ohne Überhöhung wirken
+Trajektorien über hunderte Kilometer optisch flach. Gelände wählbar:
+**Re:Earth** (frei, ohne Token, Standard), **Cesium World Terrain** (braucht
+einen kostenlosen Ion-Token, Eingabefeld erscheint bei Auswahl) oder **flach**;
+bei Dienstausfall fällt die Ansicht automatisch auf flach zurück. Die
+Kartengrundlage ist wählbar (Esri-Satellit hybrid als Standard — das
+OSM-Raster verzerrt über steilem, überhöhtem Gelände; OSM bleibt wählbar).
+Kamera-Knöpfe am rechten Rand (Zoom, Kippen, Drehen, ⌂ = zentrieren) machen
+die Ansicht ohne Maus bedienbar; sie kreisen um den Geländepunkt in der
+Bildmitte. Mit Maus/Trackpad: Ziehen = verschieben, Strg+Ziehen =
+kippen/drehen, Scrollen = Zoom. Da die
+Trajektorien Höhen über NN führen, Cesium aber über dem WGS84-Ellipsoid
+rechnet, wird der Versatz am Startpunkt kalibriert (Cesium-Geländehöhe minus
+Modellorographie) und im Kopf der Ansicht angezeigt. Eine offene 3D-Ansicht
+läuft bei Neuberechnung und im Live-Modus mit.
+
 Die Berechnungsart wird über die **Methoden-Häkchen** gewählt (konstante
 Höhe, isobar, isentrop, Modell-w sobald verfügbar). Mehrere Höhen ×  eine
 Methode oder eine Höhe × mehrere Methoden — beides zugleich lehnt die App
@@ -108,6 +128,7 @@ plus die Zeitmarken als Points mit Wind.
 | `src/windfield.js` | Datenzugriff: Levelfenster, Punkt-Cache, 4-D-Interpolation |
 | `src/config.js` | Server, Modellgitter/BBoxen, feste Höhen-Farbzuordnung |
 | `src/app.js` | Leaflet-UI |
+| `src/view3d.js` | 3D-Ansicht (CesiumJS, lazy vom CDN; Terrain-Streaming, Überhöhung, Höhenabgleich) |
 | `test/` | Offline-Tests (Kreisschluss, Umkehrbarkeit) + Live-Smoke-Test |
 
 Levelzählung der API: N=1 oberstes Level, N=65 (D2) bzw. N=74 (EU) unterstes

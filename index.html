@@ -86,6 +86,7 @@
     <div id="results"></div>
     <button id="download" class="secondary" disabled>GeoJSON herunterladen</button>
     <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
+    <button id="view3dbtn" class="secondary" disabled>3D-Ansicht</button>
 
     <details id="settings">
       <summary>Einstellungen</summary>
@@ -114,6 +115,44 @@
       Daten: DWD ICON via open-meteo.mah.priv.at ·
       Petterssen-Schema, bilinear/linear interpoliert
       <span id="runinfo"></span>
+    </div>
+  </div>
+
+  <div id="view3d" hidden>
+    <div class="v3d-head">
+      <span>3D-Ansicht</span>
+      <label class="v3d-ctl">Überhöhung
+        <input type="range" id="v3d-exagg" min="1" max="20" step="1" value="5" />
+        <span id="v3d-exagg-label" class="mono">×5</span>
+      </label>
+      <label class="v3d-ctl">Gelände
+        <select id="v3d-terrain">
+          <option value="reearth" selected>Re:Earth (frei)</option>
+          <option value="ion">Cesium World Terrain</option>
+          <option value="flat">flach</option>
+        </select>
+      </label>
+      <input type="password" id="v3d-token" placeholder="Cesium-Ion-Token" hidden />
+      <label class="v3d-ctl">Karte
+        <select id="v3d-imagery">
+          <option value="esri" selected>Esri Satellit (hybrid)</option>
+          <option value="osm">OpenStreetMap</option>
+        </select>
+      </label>
+      <span class="hint">Ziehen = verschieben · Strg+Ziehen = kippen/drehen · Scrollen = Zoom</span>
+      <span id="v3d-note" class="hint"></span>
+      <button id="v3d-close" title="Schließen">×</button>
+    </div>
+    <div id="v3d-globe">
+      <div id="v3d-cam">
+        <button id="v3d-cam-in" title="Näher heran">+</button>
+        <button id="v3d-cam-out" title="Weiter weg">−</button>
+        <button id="v3d-cam-tiltdown" title="Flacher kippen">⤓</button>
+        <button id="v3d-cam-tiltup" title="Steiler von oben">⤒</button>
+        <button id="v3d-cam-left" title="Nach links drehen">⟲</button>
+        <button id="v3d-cam-right" title="Nach rechts drehen">⟳</button>
+        <button id="v3d-center" title="Auf die Trajektorien zentrieren">⌂</button>
+      </div>
     </div>
   </div>
 

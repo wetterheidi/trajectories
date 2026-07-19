@@ -121,7 +121,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 .marker-tip { font-variant-numeric: tabular-nums; }
 
-#xsecbtn {
+#xsecbtn, #view3dbtn {
   width: 100%;
   margin-top: 6px;
   padding: 6px;
@@ -132,7 +132,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   border-radius: 6px;
   cursor: pointer;
 }
-#xsecbtn:disabled { color: #9c9b95; border-color: #c9c8c2; cursor: default; }
+#xsecbtn:disabled, #view3dbtn:disabled { color: #9c9b95; border-color: #c9c8c2; cursor: default; }
 
 #xsec {
   position: absolute;
@@ -184,3 +184,73 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 .xsec-tip .chip { display: inline-block; vertical-align: middle; margin-right: 5px; }
+
+/* 3D-Ansicht: Overlay links neben dem Bedienpanel (400px + 2×10px Rand). */
+#view3d {
+  position: absolute;
+  inset: 10px 430px 10px 10px;
+  z-index: 1100;
+  background: rgba(252, 252, 251, 0.97);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#view3d[hidden] { display: none; }
+
+.v3d-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+.v3d-ctl { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.v3d-ctl input[type="range"] { width: 110px; margin: 0; }
+#v3d-token {
+  width: 180px;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #c9c8c2;
+  border-radius: 5px;
+}
+#v3d-note { margin-left: auto; }
+#v3d-note.error { color: #b3261e; }
+#v3d-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: #52514e;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#v3d-close:hover { color: #0b0b0b; }
+#v3d-globe { flex: 1; min-height: 0; position: relative; }
+
+/* Kamera-Knöpfe: Bedienung ohne Maus (Trackpad, Touch). */
+#v3d-cam {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#v3d-cam button {
+  width: 30px;
+  height: 30px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: #0b0b0b;
+  background: rgba(252, 252, 251, 0.92);
+  border: 1px solid #c9c8c2;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+#v3d-cam button:hover { background: #fff; }

@@ -495,6 +495,7 @@ async function runTrajectories() {
   el("results").innerHTML = "";
   el("download").disabled = true;
   el("xsecbtn").disabled = true;
+  el("view3dbtn").disabled = true;
   const xsecWasOpen = !el("xsec").hidden;
   el("xsec").hidden = true;
   state.lastRuns = null;
@@ -579,6 +580,9 @@ async function runTrajectories() {
     // Live-Modus bleibt ein geöffneter Querschnitt offen und läuft mit.
     el("xsecbtn").disabled = runs.length === 0;
     if (liveMode && xsecWasOpen && runs.length) showCrossSection(true);
+    // Offene 3D-Ansicht läuft mit (Live-Modus, Neuberechnung).
+    el("view3dbtn").disabled = runs.length === 0;
+    if (view3dMod && !el("view3d").hidden && runs.length) view3dMod.update(view3dData());
     setStatus("");
   } catch (err) {
     setStatus(`Fehler: ${err.message}`, true);
@@ -686,6 +690,44 @@ el("xsec-close").addEventListener("click", () => showCrossSection(false));
 window.addEventListener("resize", () => {
   if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
 });
+
+// --- 3D-Ansicht (Cesium, lazy geladen) --------------------------------------
+let view3dMod = null;
+
+// Modellorographie am Start für den Höhenabgleich Geoid vs. Ellipsoid;
+// die Geländewerte entlang des Pfads liegen im Querschnitts-Zustand vor.
+function view3dData() {
+  return {
+    runs: state.lastRuns.runs,
+    start: state.start,
+    modelElev: state.xsec?.runs?.[0]?.terrain?.[0] ?? state.startElevation,
+  };
+}
+
+function hide3D() {
+  el("view3d").hidden = true;
+  el("view3dbtn").textContent = "3D-Ansicht";
+}
+
+el("view3dbtn").addEventListener("click", async () => {
+  if (!el("view3d").hidden) return hide3D();
+  if (!state.lastRuns?.runs?.length) return;
+  el("view3dbtn").disabled = true;
+  setStatus("Lade 3D-Ansicht …");
+  try {
+    view3dMod ??= await import("./view3d.js");
+    el("view3d").hidden = false;
+    await view3dMod.show(view3dData());
+    el("view3dbtn").textContent = "3D-Ansicht schließen";
+    setStatus("");
+  } catch (err) {
+    hide3D();
+    setStatus(`3D-Ansicht: ${err.message}`, true);
+  } finally {
+    el("view3dbtn").disabled = false;
+  }
+});
+el("v3d-close").addEventListener("click", hide3D);
 
 // --- GeoJSON-Export ---------------------------------------------------------
 el("download").addEventListener("click", () => {
