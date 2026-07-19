@@ -37,6 +37,13 @@ verschiedener Starthöhen laufen ja auseinander. Fadenkreuz-Hover zeigt Zeit,
 Höhen und Bodenhöhe über alle Streifen. Die Geländehöhen stammen aus den
 bereits gecachten Gitterpunkten (Modellorographie, keine zusätzlichen Abrufe).
 
+Der **Live-Modus** rechnet genau eine Trajektorie, die dem Höhenschieber
+folgt: Schieber bewegen → Neuberechnung (entprellt, ~200 ms). Das Windfeld
+samt Punkt-Cache bleibt dabei erhalten, solange Modell, Vertikaloption,
+Startzeit, Dauer und Richtung gleich bleiben — nach der ersten Bewegung
+kommt praktisch alles aus dem Cache und der Schieber reagiert flüssig.
+Ein geöffneter Querschnitt läuft live mit.
+
 Unter „Einheiten" lassen sich Höhe (m/ft — gilt für Anzeige *und* Eingabe)
 und Windgeschwindigkeit (km/h, m/s, kt) umstellen; intern wird durchgehend
 SI gerechnet, der GeoJSON-Export bleibt SI.

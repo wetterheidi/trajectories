@@ -1,7 +1,7 @@
 import { API_BASE, MODELS } from "./config.js";
 
 const KMH_TO_MS = 1 / 3.6;
-const MAX_POINTS_PER_REQUEST = 6;
+const MAX_POINTS_PER_REQUEST = 10;
 const KAPPA = 0.2854; // R/cp trockene Luft
 
 /**
@@ -131,16 +131,31 @@ export class WindField {
     const wanted = [
       [iLat, iLon], [iLat + 1, iLon], [iLat, iLon + 1], [iLat + 1, iLon + 1],
     ];
-    const missing = wanted.filter(([a, b]) => !this.points.has(this.key(a, b)) && !this.pending.has(this.key(a, b)));
-    if (missing.length) {
+    const anyMissing = wanted.some(([a, b]) =>
+      !this.points.has(this.key(a, b)) && !this.pending.has(this.key(a, b)));
+    if (anyMissing) {
+      // Block-Prefetch: gleich die 4x4-Umgebung holen — die Trajektorie
+      // kommt ohnehin dorthin, und ein großer Request schlägt viele kleine.
       const g = this.model.grid;
-      const coords = missing.map(([a, b]) => [a * g, b * g]);
-      const p = this.fetchPoints(coords, missing);
-      for (const [a, b] of missing) this.pending.set(this.key(a, b), p);
+      const b0 = this.model.bbox;
+      const block = [];
+      for (let a = iLat - 1; a <= iLat + 2; a++) {
+        for (let b = iLon - 1; b <= iLon + 2; b++) {
+          const inCore = wanted.some(([wa, wb]) => wa === a && wb === b);
+          const inBox = a * g >= b0.latMin && a * g <= b0.latMax &&
+            b * g >= b0.lonMin && b * g <= b0.lonMax;
+          if ((inCore || inBox) && !this.points.has(this.key(a, b)) && !this.pending.has(this.key(a, b))) {
+            block.push([a, b]);
+          }
+        }
+      }
+      const coords = block.map(([a, b]) => [a * g, b * g]);
+      const p = this.fetchPoints(coords, block);
+      for (const [a, b] of block) this.pending.set(this.key(a, b), p);
       try {
         await p;
       } finally {
-        for (const [a, b] of missing) this.pending.delete(this.key(a, b));
+        for (const [a, b] of block) this.pending.delete(this.key(a, b));
       }
     }
     const stillPending = wanted
@@ -151,14 +166,15 @@ export class WindField {
 
   async fetchPoints(coords, indices) {
     const vars = this.levelVars();
+    const jobs = [];
     for (let i = 0; i < coords.length; i += MAX_POINTS_PER_REQUEST) {
       const chunk = coords.slice(i, i + MAX_POINTS_PER_REQUEST);
-      const results = await this.request(chunk, vars, true);
-      results.forEach((r, j) => {
-        const [iLat, iLon] = indices[i + j];
-        this.storePoint(iLat, iLon, r);
-      });
+      const idx = indices.slice(i, i + MAX_POINTS_PER_REQUEST);
+      jobs.push(this.request(chunk, vars, true).then((results) => {
+        results.forEach((r, j) => this.storePoint(idx[j][0], idx[j][1], r));
+      }));
     }
+    await Promise.all(jobs);
   }
 
   storePoint(iLat, iLon, r) {

@@ -49,6 +49,7 @@ function persist() {
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
     units: { ...unitState },
+    liveMode: el("livemode").checked,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -154,11 +155,52 @@ function applySliderCfg() {
 }
 applySliderCfg();
 slider.value = input.value = saved.heightInput ?? Math.round(heightToDisplay(1000));
-slider.addEventListener("input", () => { input.value = slider.value; });
+slider.addEventListener("input", () => { input.value = slider.value; liveRunDebounced(); });
 slider.addEventListener("change", persist);
-input.addEventListener("input", () => { slider.value = Math.min(+input.value || +slider.min, +slider.max); });
+input.addEventListener("input", () => {
+  slider.value = Math.min(+input.value || +slider.min, +slider.max);
+  liveRunDebounced();
+});
 input.addEventListener("keydown", (e) => { if (e.key === "Enter") addHeight(heightFromDisplay(+input.value)); });
 el("addheight").addEventListener("click", () => addHeight(heightFromDisplay(+input.value)));
+
+// --- Live-Modus: eine Trajektorie folgt dem Höhenschieber -------------------
+// Das Windfeld (samt Punkt-Cache) bleibt zwischen den Läufen erhalten,
+// solange Modell, Vertikaloption, Zeit und Richtung gleich bleiben — nach
+// der ersten Bewegung rechnet der Schieber dann ohne Netzwerkzugriffe.
+let liveDirty = false;
+
+function liveRun() {
+  if (!el("livemode").checked || !state.start || !state.meta) return;
+  if (state.running) { liveDirty = true; return; }
+  runTrajectories();
+}
+
+const liveRunDebounced = debounce(liveRun, 200);
+
+function applyLiveModeUI() {
+  const live = el("livemode").checked;
+  el("heightlist").hidden = live;
+  el("addheight").hidden = live;
+  el("heightslabel").innerHTML = live
+    ? 'Starthöhe <span class="hint">(Live-Modus)</span>'
+    : 'Starthöhen <span class="hint">(max. 8)</span>';
+}
+
+el("livemode").addEventListener("change", () => {
+  applyLiveModeUI();
+  state.live = null;
+  persist();
+  liveRun();
+});
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
 
 // Gespeicherte Höhenliste wiederherstellen (Farben nur, wenn sie noch zur
 // Palette gehören und eindeutig sind — sonst neu zuweisen), sonst Standard.
@@ -247,6 +289,9 @@ function onUnitsChange() {
 el("unitheight").addEventListener("change", onUnitsChange);
 el("unitwind").addEventListener("change", onUnitsChange);
 
+if (saved.liveMode) el("livemode").checked = true;
+applyLiveModeUI();
+
 settingsReady = true;
 
 // --- Startpunkt per Klick / Marker ziehen -----------------------------------
@@ -322,7 +367,10 @@ async function runTrajectories() {
   const modelKey = el("model").value;
   const model = MODELS[modelKey];
   const { lat, lon } = state.start;
-  const heights = [...heightColors.keys()].sort((a, b) => a - b);
+  const liveMode = el("livemode").checked;
+  const heights = liveMode
+    ? [Math.max(1, Math.round(heightFromDisplay(+input.value) || 1000))]
+    : [...heightColors.keys()].sort((a, b) => a - b);
   const markerIntervalSec = +el("markerint").value;
   const mode = el("refmode").value;
   const vmotion = el("vmotion").value;
@@ -342,19 +390,32 @@ async function runTrajectories() {
   el("results").innerHTML = "";
   el("download").disabled = true;
   el("xsecbtn").disabled = true;
+  const xsecWasOpen = !el("xsec").hidden;
   el("xsec").hidden = true;
   state.lastRuns = null;
   state.xsec = null;
   setStatus("Berechne …");
 
   try {
-    const wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
-    const tEnd = t0Ms + direction * duration * 3600e3;
-    await wf.init(lat, lon, Math.max(...heights), Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotion);
-    if (DEBUG) {
-      console.debug(`[traj] Modell ${modelKey}, Vertikaloption ${vmotion}, ` +
-        `Levelfenster ${wf.levels.at(-1)}–${wf.levels[0]} (${wf.levels.length} Level), ` +
-        `Zeitfenster ${wf.startDate}…${wf.endDate}`);
+    // Im Live-Modus das Windfeld über Läufe hinweg behalten, solange die
+    // Signatur (Modell, Vertikaloption, Zeitfenster, Richtung, Startregion)
+    // gleich bleibt und die Höhe ins geladene Levelfenster passt.
+    const sig = [modelKey, vmotion, t0Ms, duration, direction,
+      Math.round(lat), Math.round(lon)].join("|");
+    let wf;
+    if (liveMode && state.live?.sig === sig && heights[0] <= state.live.spanTop) {
+      wf = state.live.wf;
+    } else {
+      wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
+      const tEnd = t0Ms + direction * duration * 3600e3;
+      const spanTop = liveMode ? Math.max(6000, ...heights) : Math.max(...heights);
+      await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotion);
+      state.live = liveMode ? { wf, sig, spanTop } : null;
+      if (DEBUG) {
+        console.debug(`[traj] Modell ${modelKey}, Vertikaloption ${vmotion}, ` +
+          `Levelfenster ${wf.levels.at(-1)}–${wf.levels[0]} (${wf.levels.length} Level), ` +
+          `Zeitfenster ${wf.startDate}…${wf.endDate}`);
+      }
     }
 
     const runs = [];
@@ -367,7 +428,7 @@ async function runTrajectories() {
         durationHours: duration, direction, gridMeters: model.gridMeters,
         markerIntervalSec,
       });
-      const color = colorFor(heightM);
+      const color = liveMode ? SERIES_COLORS[0] : colorFor(heightM);
       drawTrajectory(r, color, label);
       reportResult(r, heightM, color, label);
       runs.push({ r, color, label, heightM });
@@ -384,14 +445,20 @@ async function runTrajectories() {
       t0Ms,
       direction,
     };
-    // Querschnitt standardmäßig zu — nur der Knopf wird aktiv.
+    // Querschnitt standardmäßig zu — nur der Knopf wird aktiv. Im
+    // Live-Modus bleibt ein geöffneter Querschnitt offen und läuft mit.
     el("xsecbtn").disabled = runs.length === 0;
+    if (liveMode && xsecWasOpen && runs.length) showCrossSection(true);
     setStatus("");
   } catch (err) {
     setStatus(`Fehler: ${err.message}`, true);
   } finally {
     state.running = false;
     updateRunButton();
+    if (liveDirty && el("livemode").checked) {
+      liveDirty = false;
+      setTimeout(liveRun, 0);
+    }
   }
 }
 
