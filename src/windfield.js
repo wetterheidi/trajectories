@@ -38,7 +38,7 @@ export class WindField {
    *  ausschließlich null liefert, gilt als nicht verfügbar. */
   static async detectWVariable(modelKey = "icon_eu", fetchImpl = fetch.bind(globalThis)) {
     const model = MODELS[modelKey];
-    for (const prefix of ["vertical_velocity", "w", "wind_w_component", "wz", "omega"]) {
+    for (const prefix of ["wind_w", "vertical_velocity", "w"]) {
       try {
         const varName = `${prefix}_level${model.nLevels - 5}`;
         const url = `${API_BASE}/v1/forecast?latitude=50&longitude=10` +
@@ -67,17 +67,19 @@ export class WindField {
    * Levelfenster aus Sondierung am Startpunkt, Zeitfenster fixieren und
    * anhand der Vertikaloption festlegen, welche Variablen geholt werden.
    */
-  async init(lat0, lon0, maxHeightM, tMinMs, tMaxMs, vmotion = "height") {
+  async init(lat0, lon0, maxHeightM, tMinMs, tMaxMs, vmotion = "height", metExtras = false) {
     this.needs = {
       p: vmotion === "pressure" || vmotion === "theta",
       t: vmotion === "theta",
       w: vmotion === "z3d",
+      met: metExtras, // T, Td (aus q), RH an den Rechenpunkten mitführen
     };
     if (this.needs.w && !this.wVarPrefix) {
       throw new Error("Server liefert (noch) keine Modell-Vertikalgeschwindigkeit");
     }
-    // Diagnose von p0/θ0 am Start braucht p und T auch bei anderen Optionen.
-    if (vmotion === "pressure" || vmotion === "theta") {
+    // Diagnose von p0/θ0 am Start braucht p und T auch bei anderen Optionen;
+    // die Zusatzparameter brauchen beides ebenfalls (Td aus q und p).
+    if (vmotion === "pressure" || vmotion === "theta" || metExtras) {
       this.needs.p = true;
       this.needs.t = true;
     }
@@ -112,6 +114,7 @@ export class WindField {
       vars.push(`wind_u_component_level${l}`, `wind_v_component_level${l}`, `height_agl_level${l}`);
       if (this.needs.p) vars.push(`pressure_level${l}`);
       if (this.needs.t) vars.push(`temperature_level${l}`);
+      if (this.needs.met) vars.push(`specific_humidity_level${l}`, `relative_humidity_level${l}`);
       if (this.needs.w) vars.push(`${this.wVarPrefix}_level${l}`);
     }
     return vars;
@@ -182,6 +185,8 @@ export class WindField {
     if (!this.times) this.times = r.__times;
     const T = this.times.length;
     const wUnit = this.needs.w ? unitFactor(this.units[`${this.wVarPrefix}_level${this.levels[0]}`]) : 1;
+    // q in kg/kg führen; die API liefert je nach Variable g/kg.
+    const qUnit = this.units[`specific_humidity_level${this.levels[0]}`] === "g/kg" ? 1e-3 : 1;
     const point = {
       elevation: r.__elevation,
       hAgl: new Float64Array(L),
@@ -189,6 +194,8 @@ export class WindField {
       p: this.needs.p ? [] : null,
       T: this.needs.t ? [] : null,
       w: this.needs.w ? [] : null,
+      q: this.needs.met ? [] : null,
+      rh: this.needs.met ? [] : null,
     };
     for (let k = 0; k < L; k++) {
       const l = this.levels[k];
@@ -197,6 +204,8 @@ export class WindField {
       if (point.p) point.p.push(toArray(r[`pressure_level${l}`], T, 1));
       if (point.T) point.T.push(toArray(r[`temperature_level${l}`], T, 1, 273.15));
       if (point.w) point.w.push(toArray(r[`${this.wVarPrefix}_level${l}`], T, wUnit));
+      if (point.q) point.q.push(toArray(r[`specific_humidity_level${l}`], T, qUnit));
+      if (point.rh) point.rh.push(toArray(r[`relative_humidity_level${l}`], T, 1));
       const h = firstFinite(r[`height_agl_level${l}`]);
       point.hAgl[k] = h == null ? NaN : h;
     }
@@ -216,8 +225,17 @@ export class WindField {
     });
     const url = `${API_BASE}/v1/forecast?${params}`;
     const resp = await this.fetch(url);
-    if (!resp.ok) throw new Error(`API-Fehler ${resp.status} für ${url.slice(0, 120)}…`);
-    const data = await resp.json();
+    const body = await resp.text();
+    let data;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      // Der Server streamt manche Fehler als Klartext.
+      throw new Error(`Serverfehler: ${body.slice(0, 180)}`);
+    }
+    if (!resp.ok || data.error) {
+      throw new Error(data.reason ? `API-Fehler: ${data.reason.slice(0, 180)}` : `API-Fehler ${resp.status}`);
+    }
     const arr = Array.isArray(data) ? data : [data];
     return arr.map((d) => {
       Object.assign(this.units, d.hourly_units || {});
@@ -261,7 +279,7 @@ export class WindField {
     const tt = this.timeWeights(tMs);
     if (!tt) return { error: "Ende des Datenzeitraums erreicht" };
 
-    let U = 0, V = 0, W = 0, Z = 0;
+    let U = 0, V = 0, W = 0, Z = 0, P = 0, TK = 0, Q = 0, RH = 0;
     const dbg = this.debug ? [] : null;
     for (const [wt, a, b] of this.bilinearWeights(lat, lon)) {
       const p = this.points.get(this.key(a, b));
@@ -272,9 +290,18 @@ export class WindField {
       V += wt * c.v;
       W += wt * (c.w ?? 0);
       Z += wt * (p.elevation + c.hAgl);
+      P += wt * (c.p ?? 0);
+      TK += wt * (c.tK ?? 0);
+      Q += wt * (c.q ?? 0);
+      RH += wt * (c.rh ?? 0);
       if (dbg) dbg.push(this.debugCorner(p, c, wt, a, b, tt));
     }
     if (!Number.isFinite(U) || !Number.isFinite(V)) return { error: "Fehlende Winddaten (Modelllauf unvollständig)" };
+    let met;
+    if (this.needs.met) {
+      const tC = TK - 273.15;
+      met = { t: tC, td: dewpointC(Q, P, tC, RH), rh: RH, p: P };
+    }
     if (dbg) {
       const tgt = `${target.type}=${Math.round(target.value)}${target.mode ? ` ${target.mode}` : ""}`;
       console.debug(
@@ -285,7 +312,7 @@ export class WindField {
       );
       console.table(dbg);
     }
-    return { u: U, v: V, w: this.needs.w ? W : undefined, zAmsl: Z };
+    return { u: U, v: V, w: this.needs.w ? W : undefined, zAmsl: Z, met };
   }
 
   /** Eine Zeile des Konsolen-Monitors: welcher Gitterpunkt mit welchem
@@ -382,6 +409,18 @@ function resolveOnTarget(pt, target, tt) {
     const w0 = levelValueAtT(pt.w[k0], tt), w1 = levelValueAtT(pt.w[k1], tt);
     out.w = w0 + hw * (w1 - w0);
   }
+  const lin = (arr) => {
+    const a = levelValueAtT(arr[k0], tt), b = levelValueAtT(arr[k1], tt);
+    return a + hw * (b - a);
+  };
+  if (pt.p) {
+    // Druck logarithmisch in der Höhe interpolieren.
+    const p0 = levelValueAtT(pt.p[k0], tt), p1 = levelValueAtT(pt.p[k1], tt);
+    out.p = Math.exp(Math.log(p0) + hw * (Math.log(p1) - Math.log(p0)));
+  }
+  if (pt.T) out.tK = lin(pt.T);
+  if (pt.q) out.q = lin(pt.q);
+  if (pt.rh) out.rh = lin(pt.rh);
   return out;
 }
 
@@ -432,6 +471,22 @@ function thetaBracket(pt, thTarget, tt) {
 
 function theta(tK, pHpa) {
   return tK * Math.pow(1000 / pHpa, KAPPA);
+}
+
+/** Taupunkt (°C) über Wasser via Magnus, primär aus spezifischer Feuchte
+ *  und Druck (Dampfdruck e = q·p / (0.622 + 0.378·q)); Fallback aus RH+T.
+ *  Bewusst nicht die dew_point-Variable der API (Eis-Sättigung). */
+function dewpointC(qKgKg, pHpa, tC, rhPct) {
+  let ePa = null;
+  if (Number.isFinite(qKgKg) && qKgKg > 0 && Number.isFinite(pHpa) && pHpa > 0) {
+    ePa = (qKgKg * pHpa * 100) / (0.622 + 0.378 * qKgKg);
+  } else if (Number.isFinite(rhPct) && rhPct > 0 && Number.isFinite(tC)) {
+    const esPa = 611.2 * Math.exp((17.62 * tC) / (243.12 + tC));
+    ePa = (rhPct / 100) * esPa;
+  }
+  if (!ePa || ePa <= 0) return null;
+  const ln = Math.log(ePa / 611.2);
+  return (243.12 * ln) / (17.62 - ln);
 }
 
 function levelValueAtT(arr, { ti, tw }) {

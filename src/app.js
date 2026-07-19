@@ -50,6 +50,7 @@ function persist() {
     baseLayer: activeBaseLayer,
     units: { ...unitState },
     liveMode: el("livemode").checked,
+    metExtras: el("metextras").checked,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -292,6 +293,12 @@ el("unitwind").addEventListener("change", onUnitsChange);
 if (saved.liveMode) el("livemode").checked = true;
 applyLiveModeUI();
 
+if (saved.metExtras) el("metextras").checked = true;
+el("metextras").addEventListener("change", () => {
+  state.live = null; // Zusatzvariablen erfordern einen frischen Daten-Cache
+  persist();
+});
+
 settingsReady = true;
 
 // --- Startpunkt per Klick / Marker ziehen -----------------------------------
@@ -400,7 +407,8 @@ async function runTrajectories() {
     // Im Live-Modus das Windfeld über Läufe hinweg behalten, solange die
     // Signatur (Modell, Vertikaloption, Zeitfenster, Richtung, Startregion)
     // gleich bleibt und die Höhe ins geladene Levelfenster passt.
-    const sig = [modelKey, vmotion, t0Ms, duration, direction,
+    const metExtras = el("metextras").checked;
+    const sig = [modelKey, vmotion, t0Ms, duration, direction, metExtras,
       Math.round(lat), Math.round(lon)].join("|");
     let wf;
     if (liveMode && state.live?.sig === sig && heights[0] <= state.live.spanTop) {
@@ -409,7 +417,7 @@ async function runTrajectories() {
       wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
       const tEnd = t0Ms + direction * duration * 3600e3;
       const spanTop = liveMode ? Math.max(6000, ...heights) : Math.max(...heights);
-      await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotion);
+      await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), vmotion, metExtras);
       state.live = liveMode ? { wf, sig, spanTop } : null;
       if (DEBUG) {
         console.debug(`[traj] Modell ${modelKey}, Vertikaloption ${vmotion}, ` +
@@ -492,12 +500,27 @@ function drawTrajectory(r, color, label) {
   for (const m of r.markers) {
     const dir = (Math.atan2(-m.u, -m.v) * 180 / Math.PI + 360) % 360;
     const zLine = Number.isFinite(m.z) ? `<br>${fmtHeight(m.z)} NN` : "";
-    L.circleMarker([m.lat, m.lon], {
+    const marker = L.circleMarker([m.lat, m.lon], {
       radius: 4, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1,
     }).addTo(state.layers).bindTooltip(
       `<div class="marker-tip">${fmtTime(m.tMs)}<br>${label}<br>` +
-      `${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°${zLine}</div>`,
+      `${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°${zLine}` +
+      `${m.met ? "<br><em>klicken für Details</em>" : ""}</div>`,
     );
+    if (m.met) {
+      const rows = [
+        `<strong>${fmtTime(m.tMs)}</strong>`,
+        label,
+        Number.isFinite(m.z) ? `Höhe: ${fmtHeight(m.z)} NN` : null,
+        `Wind: ${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°`,
+        Number.isFinite(m.met.t) ? `T: ${m.met.t.toFixed(1)} °C` : null,
+        Number.isFinite(m.met.td) ? `Td: ${m.met.td.toFixed(1)} °C` : null,
+        Number.isFinite(m.met.rh) ? `RH: ${Math.round(m.met.rh)} %` : null,
+        Number.isFinite(m.met.p) ? `p: ${m.met.p.toFixed(0)} hPa` : null,
+        `${m.lat.toFixed(4)}°N ${m.lon.toFixed(4)}°E`,
+      ];
+      marker.bindPopup(`<div class="marker-tip">${rows.filter(Boolean).join("<br>")}</div>`);
+    }
   }
 }
 
@@ -550,6 +573,7 @@ el("download").addEventListener("click", () => {
 
 function buildGeoJSON({ runs, modelKey, mode, vmotion, t0Ms, duration, direction }) {
   const rd = (x) => Math.round(x * 1e5) / 1e5;
+  const round1 = (x) => Number.isFinite(x) ? Math.round(x * 10) / 10 : null;
   const iso = (ms) => new Date(ms).toISOString();
   const coord = (p) => Number.isFinite(p.z)
     ? [rd(p.lon), rd(p.lat), Math.round(p.z)]
@@ -589,6 +613,12 @@ function buildGeoJSON({ runs, modelKey, mode, vmotion, t0Ms, duration, direction
           wind_speed_kmh: Math.round(spd),
           wind_direction_deg: Math.round(dir),
           color,
+          ...(m.met ? {
+            temperature_c: round1(m.met.t),
+            dewpoint_c: round1(m.met.td),
+            relative_humidity_pct: Number.isFinite(m.met.rh) ? Math.round(m.met.rh) : null,
+            pressure_hpa: round1(m.met.p),
+          } : {}),
         },
       });
     }

@@ -78,7 +78,7 @@ export async function computeTrajectory({
     const mrem = Math.abs((t - t0Ms) % intervalMs);
     if (mrem < 1 || intervalMs - mrem < 1) {
       const w = await windAt(lat, lon, tgt, t);
-      if (!w.error) markers.push({ lat, lon, tMs: t, u: w.u, v: w.v, z: w.zAmsl ?? null });
+      if (!w.error) markers.push({ lat, lon, tMs: t, u: w.u, v: w.v, z: w.zAmsl ?? null, met: w.met });
     }
   }
 

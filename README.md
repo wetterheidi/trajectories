@@ -44,6 +44,13 @@ Startzeit, Dauer und Richtung gleich bleiben — nach der ersten Bewegung
 kommt praktisch alles aus dem Cache und der Schieber reagiert flüssig.
 Ein geöffneter Querschnitt läuft live mit.
 
+Unter „Einstellungen → Zusatzparameter" lassen sich T, Td und RH an den
+Zeitmarken mitführen (Klick auf eine Marke öffnet das Detail-Popup; die Werte
+wandern auch in den GeoJSON-Export). Td wird aus spezifischer Feuchte und
+Druck über die Magnus-Formel (über Wasser) berechnet — bewusst nicht die
+dew_point-Variable der API (Eis-Sättigung). Opt-in, weil die Abrufe damit
+etwa doppelt so groß werden.
+
 Unter „Einheiten" lassen sich Höhe (m/ft — gilt für Anzeige *und* Eingabe)
 und Windgeschwindigkeit (km/h, m/s, kt) umstellen; intern wird durchgehend
 SI gerechnet, der GeoJSON-Export bleibt SI.
