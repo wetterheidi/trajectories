@@ -30,11 +30,6 @@
       <span id="startpos" class="mono">Karte anklicken</span>
     </div>
     <div class="row">
-      <span class="label">Gelände <span class="hint">(Modell, am Start)</span></span>
-      <span id="startelev" class="mono">–</span>
-    </div>
-
-    <div class="row">
       <span class="label">Startzeit <span class="hint">(UTC)</span></span>
       <span id="timelabel" class="mono">–</span>
     </div>
@@ -53,7 +48,7 @@
     </div>
 
     <div id="methodrow">
-      <div class="label">Methoden <span class="hint">(mehrere nur bei einer Starthöhe)</span></div>
+      <div class="label">Methoden <span class="hint">(mehrere = Vergleich am aktiven Höhenpunkt)</span></div>
       <div id="methodlist"></div>
     </div>
 
@@ -70,18 +65,16 @@
     </div>
 
     <label class="row">
-      <span class="label">Live-Modus <span class="hint">(eine Höhe, folgt dem Schieber)</span></span>
+      <span class="label">Live-Modus <span class="hint">(aktive Höhe folgt dem Schieber)</span></span>
       <input type="checkbox" id="livemode" />
     </label>
 
-    <div class="label" id="heightslabel">Starthöhen <span class="hint">(max. 8)</span></div>
-    <div id="heightlist"></div>
-    <div class="addheight">
-      <input type="range" id="heightslider" />
-      <input type="number" id="heightinput" class="mono" />
-      <span id="heightsuffix" class="hint mono"></span>
-      <button id="addheight" title="Höhe hinzufügen">+</button>
+    <div class="label" id="heightslabel">Starthöhen <span class="hint">(max. 8, Balken anklicken)</span></div>
+    <div id="heightbar-wrap">
+      <div id="heightbar" tabindex="0" role="slider" aria-label="Starthöhen am Balken setzen"></div>
+      <div id="heightbar-labels"></div>
     </div>
+    <div id="activehint" class="hint mono"></div>
     <div id="heighthint" class="hint mono"></div>
 
     <button id="run" disabled>Trajektorien berechnen</button>
@@ -96,6 +89,10 @@
       <label class="row">
         <span class="label">Zusatzparameter <span class="hint">(T, Td, RH an den Marken)</span></span>
         <input type="checkbox" id="metextras" />
+      </label>
+      <label class="row">
+        <span class="label">Lineal-Maximum <span class="hint">(oberes Ende des Höhenbalkens)</span></span>
+        <select id="barmax"></select>
       </label>
       <div class="grid2">
         <label>Höhe

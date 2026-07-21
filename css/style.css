@@ -59,35 +59,80 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 #methodlist label { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 0; }
 #methodlist label.off { color: #9c9b95; }
 
-#heightlist { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0 4px; }
-.height-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-.height-item .rm {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: #52514e;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 0 4px;
-}
-.height-item .rm:hover { color: #b3261e; }
 .chip { width: 18px; height: 5px; border-radius: 2px; box-shadow: 0 0 0 1px #fff; flex: none; }
 
-.addheight { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
-.addheight input[type="range"] { flex: 1; margin: 0; }
-.addheight input[type="number"] { width: 72px; }
-.addheight button {
-  width: 28px;
-  height: 26px;
-  font: inherit;
-  font-weight: 700;
+/* Höhenbalken: vertikale Skala 0…10 km, Höhenpunkte per Klick/Ziehen. */
+#heightbar-wrap { display: flex; gap: 14px; align-items: stretch; margin: 8px 0 4px; }
+#heightbar {
+  position: relative;
+  flex: none;
+  width: 62px;
+  height: 224px;
+  background: linear-gradient(#e9f1fa, #f7fafc);
   border: 1px solid #c9c8c2;
-  border-radius: 5px;
-  background: #fff;
-  cursor: pointer;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
 }
-.addheight button:disabled { color: #9c9b95; cursor: default; }
-#heightsuffix { flex: none; }
+#heightbar:focus-visible { outline: 2px solid #1c5cab; outline-offset: 1px; }
+.bar-terrain {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(45deg, #d8d2c4, #d8d2c4 4px, #cdc7b8 4px, #cdc7b8 8px);
+  opacity: 0.7; pointer-events: none;
+}
+.bar-tick { position: absolute; left: 0; right: 0; border-top: 1px dashed #c9c8c2; pointer-events: none; }
+.bar-ticklabel {
+  position: absolute; left: 3px; transform: translateY(50%);
+  font-size: 10px; color: #7a7970; pointer-events: none; white-space: nowrap;
+}
+/* Oberkante der Geländefläche im NN-Bezug. */
+.bar-groundline { position: absolute; left: 0; right: 0; border-top: 1px solid #a89f8a; pointer-events: none; }
+.bar-groundlabel { color: #6b5f45; font-weight: 600; }
+/* Modell-Geländehöhe rechts an der Grundlinie. */
+.bar-groundinfo {
+  position: absolute; left: 0; right: 0; transform: translateY(50%);
+  font-size: 11px; color: #6b5f45; font-style: italic; pointer-events: none; white-space: nowrap;
+}
+/* Im Lineal nur der farbige Strich als Klick-/Ziehziel. */
+.bar-marker {
+  position: absolute; left: 0; right: 0; height: 16px;
+  transform: translateY(50%); display: flex; align-items: center; cursor: grab;
+}
+.bar-marker.dim { opacity: 0.32; }
+.bar-line {
+  position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px;
+  box-shadow: 0 0 0 1px #fff; pointer-events: none;
+}
+.bar-marker.active .bar-line { height: 6px; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #0b0b0b; }
+
+/* Beschriftung außerhalb des Lineals, gleiche Höhe für die Ausrichtung. Der
+   aktive Punkt trägt hier ein Editierfeld für den genauen Höhenwert. */
+#heightbar-labels { position: relative; flex: none; width: 130px; height: 224px; }
+.bar-labelrow {
+  position: absolute; left: 0; right: 0; transform: translateY(50%);
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 12px; line-height: 1;
+}
+.bar-labelrow.dim { opacity: 0.4; }
+.bar-swatch { width: 12px; height: 4px; border-radius: 2px; box-shadow: 0 0 0 1px #fff; flex: none; }
+.bar-labelrow.active .bar-swatch { height: 6px; }
+.bar-label { white-space: nowrap; }
+.bar-labelrow.active .bar-label { font-weight: 700; }
+.bar-edit {
+  width: 62px; font: inherit; font-size: 12px; padding: 2px 4px;
+  border: 1px solid #1c5cab; border-radius: 4px; background: #fff;
+}
+.bar-unit { flex: none; }
+.bar-rm {
+  border: none; background: none; color: #52514e; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; margin-left: auto; opacity: 0;
+}
+.bar-labelrow:hover .bar-rm, .bar-labelrow.active .bar-rm { opacity: 1; }
+.bar-rm:hover { color: #b3261e; }
+
+#activehint { min-height: 1.2em; margin-top: 6px; }
+#activehint.accent { color: #1c5cab; font-weight: 600; }
 #heighthint { min-height: 1.2em; margin: -6px 0 8px; }
 #heighthint.error { color: #b3261e; font-weight: 600; }
 
@@ -297,10 +342,14 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   select, input[type="number"] { padding: 6px 8px; }
   #run { padding: 12px; }
   #download, #xsecbtn, #view3dbtn { padding: 10px; }
-  .addheight button { width: 40px; height: 36px; }
-  .height-item .rm { font-size: 18px; padding: 4px 8px; }
+  #heightbar { width: 76px; height: 240px; }
+  #heightbar-labels { height: 240px; width: 140px; }
+  .bar-marker { height: 26px; }
+  .bar-labelrow { font-size: 14px; }
+  .bar-edit { width: 68px; font-size: 16px; }
+  .bar-rm { font-size: 18px; padding: 2px 8px; opacity: 1; }
   input[type="range"] { height: 28px; }
-  #methodlist, #heightlist { grid-template-columns: 1fr; }
+  #methodlist { grid-template-columns: 1fr; }
   #methodlist input[type="checkbox"], #livemode, #metextras {
     width: 20px;
     height: 20px;

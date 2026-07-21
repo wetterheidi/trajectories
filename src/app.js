@@ -42,7 +42,8 @@ function persist() {
     duration: +el("duration").value || 12,
     direction: el("direction").value,
     heights: [...heightColors].map(([m, color]) => ({ m, color })),
-    heightInput: +el("heightinput").value || 1000,
+    activeHeight,
+    barMax,
     start: state.start,
     timeHour: +el("timeslider").value || null,
     view: { center: map.getCenter(), zoom: map.getZoom() },
@@ -102,78 +103,275 @@ const state = {
   running: false,
 };
 
-// --- Höhen-Auswahl: freie Höhen per Schieber, feste Farb-Slots --------------
-// Map Höhe(m) -> Farbe. Eine Höhe behält ihre Farbe, solange sie in der Liste
-// ist; beim Entfernen wird der Slot wieder frei.
+// --- Höhen-Auswahl: Höhenbalken mit anklickbaren Punkten --------------------
+// Map Höhe(m) -> Farbe. Eine Höhe behält ihre Farbe, solange sie am Balken
+// ist; beim Entfernen wird der Farb-Slot wieder frei. `activeHeight` ist der
+// hervorgehobene Punkt — er entscheidet beim Methodenvergleich, an welcher
+// Höhe verglichen wird.
 const heightColors = new Map();
+let activeHeight = null;
+const bar = el("heightbar");
+
+// Oberes Ende der Höhenbalken-Skala, in den Einstellungen wählbar (Default
+// 6 km). HEIGHT_MAX bleibt die absolute Obergrenze für diese Auswahl.
+const BAR_MAX_OPTIONS = [3000, 4000, 5000, 6000, 8000, 10000];
+let barMax = BAR_MAX_OPTIONS.includes(saved.barMax) ? saved.barMax : 6000;
 
 function addHeight(m) {
-  m = Math.round(Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, m)));
-  if (heightColors.has(m)) return;
+  m = Math.round(Math.min(barMax, Math.max(HEIGHT_MIN, m)));
+  if (heightColors.has(m)) { activeHeight = m; renderBar(); return true; }
   if (heightColors.size >= SERIES_COLORS.length) {
-    return setStatus(`Maximal ${SERIES_COLORS.length} Höhen gleichzeitig.`, true);
+    setStatus(`Maximal ${SERIES_COLORS.length} Höhen gleichzeitig.`, true);
+    return false;
   }
   const used = new Set(heightColors.values());
   heightColors.set(m, SERIES_COLORS.find((c) => !used.has(c)));
-  renderHeightList();
+  activeHeight = m;
+  renderBar();
   persist();
+  return true;
 }
 
 function removeHeight(m) {
   heightColors.delete(m);
-  renderHeightList();
+  if (activeHeight === m) {
+    const keys = [...heightColors.keys()].sort((a, b) => a - b);
+    activeHeight = keys.length ? keys[0] : null;
+  }
+  renderBar();
   persist();
 }
 
-function renderHeightList() {
-  const list = el("heightlist");
-  list.innerHTML = "";
-  for (const m of [...heightColors.keys()].sort((a, b) => a - b)) {
-    const item = document.createElement("div");
-    item.className = "height-item";
-    item.innerHTML =
-      `<span class="chip" style="background:${heightColors.get(m)}"></span>` +
-      `<span class="mono">${fmtHeight(m)}</span>` +
-      `<button class="rm" title="Entfernen">×</button>`;
-    item.querySelector(".rm").addEventListener("click", () => removeHeight(m));
-    list.appendChild(item);
-  }
-  el("addheight").disabled = heightColors.size >= SERIES_COLORS.length;
+// --- Höhenbalken: Skala, Umrechnung Pixel<->Höhe, Rendern -------------------
+// Der Balken bildet 0…barMax mit einer Wurzel-Skala ab (Grund unten, hohe
+// Werte oben): der häufig genutzte untere Bereich wird gespreizt, oben wird
+// gestaucht. Die beschrifteten Ticks machen die Abstände transparent.
+function metersToFrac(m) {
+  return Math.sqrt(Math.min(1, Math.max(0, m / barMax)));
 }
 
-const slider = el("heightslider"), input = el("heightinput");
+// Oben und unten einen Rand freilassen, damit die Endbeschriftungen („Grund",
+// „10 km") nicht vom overflow:hidden des Lineals angeschnitten werden. Die
+// nutzbare Skala liegt so zwischen BAR_PAD und (1 − BAR_PAD) der Balkenhöhe.
+const BAR_PAD = 0.05;
+function posPct(m) {
+  return (BAR_PAD + metersToFrac(m) * (1 - 2 * BAR_PAD)) * 100;
+}
 
-// Schieber/Zahlenfeld arbeiten in der Anzeige-Einheit (m oder ft);
-// intern wird alles in Metern geführt.
-function applySliderCfg() {
+// Rastert eine Höhe auf die Schrittweite der aktuellen Einheit und begrenzt
+// sie auf den zulässigen Bereich.
+function snapMeters(m) {
   const cfg = heightSliderCfg();
-  slider.min = cfg.min;
-  slider.max = cfg.max; // Feinbereich; größere Werte über das Zahlenfeld
-  slider.step = cfg.step;
-  input.min = cfg.min;
-  input.max = cfg.inputMax;
-  input.step = cfg.step;
+  const disp = Math.round(heightToDisplay(m) / cfg.step) * cfg.step;
+  const mm = heightFromDisplay(Math.min(Math.max(disp, cfg.min), cfg.inputMax));
+  return Math.round(Math.min(barMax, Math.max(HEIGHT_MIN, mm)));
 }
-applySliderCfg();
-slider.value = input.value = saved.heightInput ?? Math.round(heightToDisplay(1000));
-slider.addEventListener("input", () => {
-  input.value = slider.value;
-  updateHeightContext();
-  liveRunDebounced();
-});
-slider.addEventListener("change", persist);
-input.addEventListener("input", () => {
-  slider.value = Math.min(+input.value || +slider.min, +slider.max);
-  updateHeightContext();
-  liveRunDebounced();
-});
-input.addEventListener("keydown", (e) => { if (e.key === "Enter") addHeight(heightFromDisplay(+input.value)); });
-el("addheight").addEventListener("click", () => addHeight(heightFromDisplay(+input.value)));
 
-// --- Live-Modus: eine Trajektorie folgt dem Höhenschieber -------------------
+function yToMeters(clientY) {
+  const r = bar.getBoundingClientRect();
+  const raw = Math.min(1, Math.max(0, 1 - (clientY - r.top) / r.height));
+  // Rand herausrechnen, dann Wurzel-Skala umkehren.
+  const frac = Math.min(1, Math.max(0, (raw - BAR_PAD) / (1 - 2 * BAR_PAD)));
+  return snapMeters(frac * frac * barMax);
+}
+
+// Gitterlinien passend zu barMax: „Grund" und Maximum immer, dazwischen runde
+// Werte mit ~5 Linien Zielabstand. Werte in der Anzeige-Einheit.
+function niceStep(maxDisp) {
+  const steps = unitState.height === "ft" ? [1000, 2500, 5000, 10000] : [500, 1000, 2000, 2500, 5000];
+  const raw = maxDisp / 5;
+  return steps.find((s) => raw <= s) ?? steps[steps.length - 1];
+}
+
+function tickValues() {
+  const maxDisp = Math.round(heightToDisplay(barMax));
+  const step = niceStep(maxDisp);
+  const ticks = [];
+  for (let v = 0; v < maxDisp - step * 0.35; v += step) ticks.push(v);
+  ticks.push(maxDisp);
+  return ticks;
+}
+
+function tickLabel(v) {
+  // Der Skalen-Nullpunkt ist bei AGL der Boden, bei AMSL der Meeresspiegel.
+  if (v === 0) return el("refmode").value === "amsl" ? "NN" : "Grund";
+  const k = Math.round(v / 100) / 10; // Tausender mit einer Nachkommastelle
+  return unitState.height === "ft" ? `${k}k ft` : `${k} km`;
+}
+
+function renderBar() {
+  const live = el("livemode").checked;
+  const compare = selectedMethods().length > 1;
+  const cfg = heightSliderCfg();
+  const editMax = Math.min(cfg.inputMax, Math.round(heightToDisplay(barMax)));
+  const mode = el("refmode").value;
+  const elev = state.startElevation;
+  let html = "";
+
+  // Modellgelände (nur bei NN-Bezug sinnvoll): schraffierte Fläche vom
+  // Meeresspiegel bis zur Geländehöhe, deren Oberkante als „Grund" markiert.
+  if (mode === "amsl" && elev != null) {
+    const bottom = posPct(0);
+    const top = posPct(elev);
+    html += `<div class="bar-terrain" style="bottom:${bottom}%;height:${top - bottom}%"></div>` +
+      `<div class="bar-groundline" style="bottom:${top}%"></div>` +
+      `<div class="bar-ticklabel bar-groundlabel" style="bottom:${top}%">Grund</div>`;
+  }
+
+  for (const v of tickValues()) {
+    const pos = posPct(heightFromDisplay(v));
+    html += `<div class="bar-tick" style="bottom:${pos}%"></div>` +
+      `<div class="bar-ticklabel" style="bottom:${pos}%">${tickLabel(v)}</div>`;
+  }
+
+  // Im Lineal nur die farbigen Striche (Klick-/Ziehziel), die Beschriftung
+  // steht in einer eigenen Spalte rechts daneben. Der aktive Punkt trägt dort
+  // ein Editierfeld für den genauen Wert.
+  const entries = [...heightColors.entries()].sort((a, b) => a[0] - b[0]);
+  let labelHtml = "";
+  for (const [m, color] of entries) {
+    const pos = posPct(m);
+    const isActive = m === activeHeight;
+    const dim = compare && !isActive;
+    const cls = `${isActive ? " active" : ""}${dim ? " dim" : ""}`;
+    html += `<div class="bar-marker${cls}" data-m="${m}" style="bottom:${pos}%">` +
+      `<span class="bar-line" style="background:${color}"></span></div>`;
+    const value = isActive
+      ? `<input type="number" class="bar-edit mono" value="${Math.round(heightToDisplay(m))}" ` +
+        `min="${cfg.min}" max="${editMax}" step="${cfg.step}">` +
+        `<span class="bar-unit hint">${heightUnit()}</span>`
+      : `<span class="bar-label mono">${fmtHeight(m)}</span>`;
+    labelHtml += `<div class="bar-labelrow${cls}" data-m="${m}" style="bottom:${pos}%">` +
+      `<span class="bar-swatch" style="background:${color}"></span>${value}` +
+      `<button class="bar-rm" data-m="${m}" title="Entfernen" tabindex="-1">×</button>` +
+      `</div>`;
+  }
+  // Modell-Geländehöhe rechts neben der Grundlinie (bei AGL am unteren Rand,
+  // bei AMSL an der Geländeoberkante).
+  if (elev != null) {
+    const groundPos = posPct(mode === "amsl" ? elev : 0);
+    labelHtml += `<div class="bar-groundinfo" style="bottom:${groundPos}%">${fmtHeight(elev)} NN</div>`;
+  }
+  bar.innerHTML = html;
+  el("heightbar-labels").innerHTML = labelHtml;
+
+  updateActiveHint();
+}
+
+// Hinweis, welcher Punkt beim Methodenvergleich verglichen wird.
+function updateActiveHint() {
+  const hint = el("activehint");
+  if (selectedMethods().length <= 1) {
+    hint.textContent = "";
+    hint.classList.remove("accent");
+    return;
+  }
+  hint.textContent = activeHeight != null
+    ? `Vergleich bei ${fmtHeight(activeHeight)} — anderen Balkenpunkt anklicken zum Wechseln`
+    : "Bitte einen Höhenpunkt für den Vergleich wählen";
+  hint.classList.add("accent");
+}
+
+// --- Balken-Interaktion: klicken = anlegen/aktivieren, ziehen = verschieben,
+// Wert in der aktiven Beschriftung direkt editierbar ------------------------
+let drag = null;
+
+// Im Live-Modus zieht jede Änderung der aktiven Höhe eine sofortige
+// Neuberechnung nach sich.
+function maybeLive() {
+  if (el("livemode").checked) liveRunDebounced();
+}
+
+// Höhe eines Punkts ändern, ohne einen bereits belegten Wert zu überschreiben.
+function moveHeight(fromM, toM) {
+  if (toM === fromM || heightColors.has(toM)) return false;
+  const color = heightColors.get(fromM);
+  heightColors.delete(fromM);
+  heightColors.set(toM, color);
+  if (activeHeight === fromM) activeHeight = toM;
+  return true;
+}
+
+bar.addEventListener("pointerdown", (e) => {
+  bar.setPointerCapture(e.pointerId);
+  const markerEl = e.target.closest(".bar-marker");
+  const m = markerEl ? +markerEl.dataset.m : yToMeters(e.clientY);
+  if (markerEl || heightColors.has(m)) {
+    activeHeight = m;
+    renderBar();
+    updateHeightContext();
+    drag = { m };
+    maybeLive();
+    return;
+  }
+  // Leere Stelle: neuen Punkt anlegen (wird aktiv) und gleich ziehbar machen.
+  if (addHeight(m)) { drag = { m }; updateHeightContext(); maybeLive(); }
+});
+
+bar.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const m = yToMeters(e.clientY);
+  if (!moveHeight(drag.m, m)) return;
+  drag.m = m;
+  renderBar();
+  updateHeightContext();
+  maybeLive();
+});
+
+bar.addEventListener("pointerup", () => {
+  if (drag) persist();
+  drag = null;
+});
+
+// Beschriftungsspalte: × entfernt den Punkt; Klick auf eine noch nicht aktive
+// Zeile aktiviert sie und fokussiert das Editierfeld.
+el("heightbar-labels").addEventListener("click", (e) => {
+  const rm = e.target.closest(".bar-rm");
+  if (rm) { removeHeight(+rm.dataset.m); maybeLive(); return; }
+  const row = e.target.closest(".bar-labelrow");
+  if (!row) return;
+  const m = +row.dataset.m;
+  if (m === activeHeight) return; // schon aktiv → nicht neu rendern (Fokus behalten)
+  activeHeight = m;
+  renderBar();
+  updateHeightContext();
+  persist();
+  maybeLive();
+  const edit = el("heightbar-labels").querySelector(".bar-labelrow.active .bar-edit");
+  if (edit) { edit.focus(); edit.select(); }
+});
+
+// Editierfeld der aktiven Höhe: bei Enter/Verlassen den Wert übernehmen.
+el("heightbar-labels").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("bar-edit")) return;
+  const oldM = +e.target.closest(".bar-labelrow").dataset.m;
+  if (moveHeight(oldM, snapMeters(heightFromDisplay(+e.target.value)))) {
+    persist();
+    maybeLive();
+  }
+  renderBar(); // Wert normalisieren bzw. bei Kollision zurücksetzen
+  updateHeightContext();
+});
+
+// Tastatur: aktiven Punkt mit Pfeil hoch/runter um eine Schrittweite bewegen.
+bar.addEventListener("keydown", (e) => {
+  if (activeHeight == null) return;
+  const dir = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
+  if (!dir) return;
+  e.preventDefault();
+  const stepM = heightFromDisplay(heightSliderCfg().step);
+  if (moveHeight(activeHeight, snapMeters(activeHeight + dir * stepM))) {
+    renderBar();
+    updateHeightContext();
+    persist();
+    maybeLive();
+  }
+});
+
+// --- Live-Modus: die aktive Höhe rechnet bei jeder Änderung sofort neu -------
 // Das Windfeld (samt Punkt-Cache) bleibt zwischen den Läufen erhalten,
 // solange Modell, Vertikaloption, Zeit und Richtung gleich bleiben — nach
-// der ersten Bewegung rechnet der Schieber dann ohne Netzwerkzugriffe.
+// der ersten Bewegung rechnet der aktive Punkt dann ohne Netzwerkzugriffe.
 let liveDirty = false;
 
 function liveRun() {
@@ -186,11 +384,10 @@ const liveRunDebounced = debounce(liveRun, 200);
 
 function applyModeUI() {
   const live = el("livemode").checked;
-  el("heightlist").hidden = live;
-  el("addheight").hidden = live;
   el("heightslabel").innerHTML = live
-    ? 'Starthöhe <span class="hint">(Live-Modus)</span>'
-    : 'Starthöhen <span class="hint">(max. 8)</span>';
+    ? 'Starthöhen <span class="hint">(Live: aktive Höhe folgt dem Balken)</span>'
+    : 'Starthöhen <span class="hint">(max. 8, Balken anklicken)</span>';
+  renderBar();
 }
 
 el("livemode").addEventListener("change", () => {
@@ -209,6 +406,7 @@ for (const m of METHODS) {
     `<span class="chip" style="background:${m.color}"></span>${m.label}`;
   label.querySelector("input").addEventListener("change", () => {
     state.live = null; // andere Methoden brauchen ggf. andere Variablen
+    renderBar(); // Ausgrauen/Aktiv-Hinweis hängen am Vergleichsmodus
     persist();
   });
   el("methodlist").appendChild(label);
@@ -238,13 +436,25 @@ if (savedHeights?.length) {
     for (const { m, color } of savedHeights.slice(0, SERIES_COLORS.length)) {
       heightColors.set(Math.round(m), color);
     }
-    renderHeightList();
   } else {
     savedHeights.forEach(({ m }) => addHeight(m));
   }
 } else {
   DEFAULT_HEIGHTS.forEach(addHeight);
 }
+// Migration: ohne gespeichertes Lineal-Maximum das kleinste passende wählen,
+// damit vorhandene Höhen sichtbar bleiben (aber mindestens den 6-km-Default).
+if (!BAR_MAX_OPTIONS.includes(saved.barMax) && heightColors.size) {
+  const maxH = Math.max(...heightColors.keys());
+  barMax = Math.max(6000, BAR_MAX_OPTIONS.find((v) => v >= maxH) ?? HEIGHT_MAX);
+}
+// Aktiven Punkt wiederherstellen, sonst den untersten nehmen.
+if (Number.isFinite(saved.activeHeight) && heightColors.has(Math.round(saved.activeHeight))) {
+  activeHeight = Math.round(saved.activeHeight);
+} else if (heightColors.size) {
+  activeHeight = [...heightColors.keys()].sort((a, b) => a - b)[0];
+}
+renderBar();
 
 // --- Markenabstand ----------------------------------------------------------
 for (const min of MARKER_INTERVALS) {
@@ -255,12 +465,29 @@ for (const min of MARKER_INTERVALS) {
   el("markerint").appendChild(opt);
 }
 
+// --- Lineal-Maximum (Höhenbalken) -------------------------------------------
+for (const v of BAR_MAX_OPTIONS) {
+  const opt = document.createElement("option");
+  opt.value = v;
+  opt.textContent = `${v / 1000} km`;
+  if (v === barMax) opt.selected = true;
+  el("barmax").appendChild(opt);
+}
+el("barmax").addEventListener("change", () => {
+  barMax = +el("barmax").value;
+  // Höhen oberhalb des neuen Maximums fallen weg.
+  for (const m of [...heightColors.keys()]) if (m > barMax) removeHeight(m);
+  renderBar();
+  updateHeightContext();
+  persist();
+});
+
 // --- Übrige Einstellungen wiederherstellen und Änderungen speichern ---------
 if (MODELS[saved.model]) el("model").value = saved.model;
 if (["agl", "amsl"].includes(saved.refmode)) el("refmode").value = saved.refmode;
 if (["1", "-1"].includes(saved.direction)) el("direction").value = saved.direction;
 if (Number.isFinite(saved.duration)) el("duration").value = saved.duration;
-for (const id of ["refmode", "markerint", "direction", "duration", "heightinput"]) {
+for (const id of ["markerint", "direction", "duration"]) {
   el(id).addEventListener("change", persist);
 }
 
@@ -290,19 +517,13 @@ if (saved.start && Number.isFinite(saved.start.lat) && Number.isFinite(saved.sta
   setStart(saved.start.lat, saved.start.lon);
 }
 
-// Einheiten-Auswahl: Wert des Höhenfelds in die neue Einheit umrechnen,
-// Höhenliste und (falls offen) Querschnitt neu beschriften.
+// Einheiten-Auswahl: Balken (samt Editierfeld) und, falls offen, Querschnitt
+// in der neuen Einheit neu beschriften.
 el("unitheight").value = unitState.height;
 el("unitwind").value = unitState.wind;
 function onUnitsChange() {
-  const meters = heightFromDisplay(+input.value || 0);
   setUnits({ height: el("unitheight").value, wind: el("unitwind").value });
-  applySliderCfg();
-  const cfg = heightSliderCfg();
-  const disp = Math.round(heightToDisplay(meters) / cfg.step) * cfg.step;
-  input.value = Math.min(Math.max(disp, cfg.min), cfg.inputMax);
-  slider.value = Math.min(+input.value, cfg.max);
-  renderHeightList();
+  renderBar();
   updateHeightContext();
   if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
   persist();
@@ -362,6 +583,7 @@ async function fetchStartElevation() {
   const model = MODELS[el("model").value];
   state.startElevation = null;
   updateHeightContext();
+  renderBar();
   try {
     const params = new URLSearchParams({
       latitude: s.lat.toFixed(5),
@@ -374,36 +596,32 @@ async function fetchStartElevation() {
     if (Number.isFinite(d.elevation) && state.start === s) {
       state.startElevation = d.elevation;
       updateHeightContext();
+      renderBar(); // Terrain-Schraffur am Balken (NN-Bezug) aktualisieren
     }
   } catch {
     /* Anzeige bleibt leer */
   }
 }
 
-/** Macht den Bezug der Starthöhe sichtbar: Einheit+Referenz am Eingabefeld,
- *  Geländehöhe am Start und die Umrechnung AGL <-> NN für den aktuellen
- *  Reglerwert. */
+/** Macht den Bezug der aktiven Starthöhe sichtbar: Geländehöhe am Start und
+ *  die Umrechnung AGL <-> NN für den aktiven Höhenpunkt. */
 function updateHeightContext() {
   const mode = el("refmode").value;
-  el("heightsuffix").textContent = `${heightUnit()} ${mode === "agl" ? "AGL" : "NN"}`;
   const elev = state.startElevation;
-  el("startelev").textContent = elev == null ? "–" : `${fmtHeight(elev)} NN`;
   const hint = el("heighthint");
+  hint.classList.remove("error");
+  const h = activeHeight;
+  if (h == null) { hint.textContent = ""; return; }
+  const ref = mode === "agl" ? "über Grund" : "NN";
   if (elev == null) {
-    hint.textContent = "";
-    hint.classList.remove("error");
-    return;
-  }
-  const h = heightFromDisplay(+input.value || 0);
-  if (mode === "agl") {
-    hint.textContent = `${fmtHeight(h)} über Grund ≈ ${fmtHeight(h + elev)} NN am Startort`;
-    hint.classList.remove("error");
+    hint.textContent = `Aktiv: ${fmtHeight(h)} ${ref}`;
+  } else if (mode === "agl") {
+    hint.textContent = `Aktiv: ${fmtHeight(h)} über Grund ≈ ${fmtHeight(h + elev)} NN am Startort`;
   } else if (h < elev) {
-    hint.textContent = `${fmtHeight(h)} NN liegt am Startort unter Grund!`;
+    hint.textContent = `Aktiv: ${fmtHeight(h)} NN liegt am Startort unter Grund!`;
     hint.classList.add("error");
   } else {
-    hint.textContent = `${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund am Startort`;
-    hint.classList.remove("error");
+    hint.textContent = `Aktiv: ${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund am Startort`;
   }
 }
 
@@ -450,7 +668,42 @@ el("model").addEventListener("change", () => {
   updateWDetection();
   fetchStartElevation(); // Modellorographie unterscheidet sich je Modell
 });
-el("refmode").addEventListener("change", updateHeightContext);
+// Beim Wechsel des Höhenbezugs die vorhandenen Höhen physisch beibehalten:
+// AGL→AMSL addiert die Geländehöhe, AMSL→AGL zieht sie ab (gerundet auf die
+// Schrittweite). Ohne bekannte Geländehöhe wird nur neu beschriftet.
+el("refmode").addEventListener("change", () => {
+  convertHeightsForRefmode(el("refmode").value);
+  updateHeightContext();
+  renderBar();
+  persist();
+  maybeLive();
+});
+
+function convertHeightsForRefmode(toMode) {
+  const elev = state.startElevation;
+  if (elev == null || !heightColors.size) return;
+  const shift = toMode === "amsl" ? elev : -elev;
+  const items = [...heightColors.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([m, color]) => ({ raw: m + shift, color, wasActive: m === activeHeight }));
+  // Lineal-Maximum bei Bedarf anheben, damit keine Höhe oben herausfällt.
+  const maxRaw = Math.max(...items.map((i) => i.raw));
+  if (maxRaw > barMax) {
+    barMax = BAR_MAX_OPTIONS.find((v) => v >= maxRaw) ?? HEIGHT_MAX;
+    el("barmax").value = barMax;
+  }
+  heightColors.clear();
+  activeHeight = null;
+  for (const it of items) {
+    const m = snapMeters(it.raw); // rastert und begrenzt auf [HEIGHT_MIN, barMax]
+    if (heightColors.has(m)) continue; // unter Grund geratene Höhen können zusammenfallen
+    heightColors.set(m, it.color);
+    if (it.wasActive) activeHeight = m;
+  }
+  if (activeHeight == null && heightColors.size) {
+    activeHeight = [...heightColors.keys()].sort((a, b) => a - b)[0];
+  }
+}
 
 function updateRunButton() {
   el("run").disabled = state.running || !state.start || !state.meta;
@@ -464,26 +717,30 @@ async function runTrajectories() {
   const model = MODELS[modelKey];
   const { lat, lon } = state.start;
   const liveMode = el("livemode").checked;
-  const heights = liveMode
-    ? [Math.max(1, Math.round(heightFromDisplay(+input.value) || 1000))]
-    : [...heightColors.keys()].sort((a, b) => a - b);
   const methods = selectedMethods();
   // Mehrere Methoden ergeben nur bei genau einer Starthöhe eine lesbare
-  // Darstellung (Farbe kodiert dann die Methode statt der Höhe).
+  // Darstellung (Farbe kodiert dann die Methode statt der Höhe). Verglichen
+  // wird am aktiven Balkenpunkt; die übrigen Punkte bleiben erhalten.
   const compareMode = methods.length > 1;
+  // Live-Modus und Methodenvergleich rechnen an der aktiven Höhe; sonst alle
+  // Höhen des Balkens.
+  const heights = (liveMode || compareMode)
+    ? (activeHeight != null ? [activeHeight] : [])
+    : [...heightColors.keys()].sort((a, b) => a - b);
   const markerIntervalSec = +el("markerint").value;
   const mode = el("refmode").value;
   if (!methods.length) {
     return setStatus("Bitte mindestens eine Methode wählen.", true);
   }
-  if (compareMode && heights.length > 1) {
-    return setStatus("Mehrere Methoden bitte mit genau einer Starthöhe kombinieren.", true);
-  }
   const direction = +el("direction").value;
   const duration = Math.min(72, Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
 
-  if (!heights.length) return setStatus("Bitte mindestens eine Höhe wählen.", true);
+  if (!heights.length) {
+    return setStatus(compareMode
+      ? "Bitte einen Höhenpunkt am Balken für den Vergleich wählen."
+      : "Bitte eine Höhe am Balken wählen.", true);
+  }
   const b = model.bbox;
   if (lat < b.latMin || lat > b.latMax || lon < b.lonMin || lon > b.lonMax) {
     return setStatus(`Startpunkt liegt außerhalb des ${model.label}-Gebiets.`, true);
@@ -515,7 +772,7 @@ async function runTrajectories() {
     } else {
       wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
       const tEnd = t0Ms + direction * duration * 3600e3;
-      const spanTop = liveMode ? Math.max(6000, ...heights) : Math.max(...heights);
+      const spanTop = liveMode ? Math.max(barMax, ...heights) : Math.max(...heights);
       await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), methods, metExtras);
       state.live = liveMode ? { wf, sig, spanTop } : null;
       if (DEBUG) {
@@ -532,7 +789,7 @@ async function runTrajectories() {
     const runs = [];
     for (const { heightM, method } of jobs) {
       const style = METHODS.find((m) => m.key === method);
-      const color = compareMode ? style.color : liveMode ? SERIES_COLORS[0] : colorFor(heightM);
+      const color = compareMode ? style.color : colorFor(heightM);
       const dash = compareMode ? style.dash : null;
       setStatus(`Berechne ${compareMode ? style.label : fmtHeight(heightM)} …`);
       try {
