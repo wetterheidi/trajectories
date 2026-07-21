@@ -487,6 +487,7 @@ if (MODELS[saved.model]) el("model").value = saved.model;
 if (["agl", "amsl"].includes(saved.refmode)) el("refmode").value = saved.refmode;
 if (["1", "-1"].includes(saved.direction)) el("direction").value = saved.direction;
 if (Number.isFinite(saved.duration)) el("duration").value = saved.duration;
+updateDirectionLabels();
 for (const id of ["markerint", "direction", "duration"]) {
   el(id).addEventListener("change", persist);
 }
@@ -613,15 +614,16 @@ function updateHeightContext() {
   const h = activeHeight;
   if (h == null) { hint.textContent = ""; return; }
   const ref = mode === "agl" ? "über Grund" : "NN";
+  const ort = +el("direction").value === -1 ? "am Zielort" : "am Startort";
   if (elev == null) {
     hint.textContent = `Aktiv: ${fmtHeight(h)} ${ref}`;
   } else if (mode === "agl") {
-    hint.textContent = `Aktiv: ${fmtHeight(h)} über Grund ≈ ${fmtHeight(h + elev)} NN am Startort`;
+    hint.textContent = `Aktiv: ${fmtHeight(h)} über Grund ≈ ${fmtHeight(h + elev)} NN ${ort}`;
   } else if (h < elev) {
-    hint.textContent = `Aktiv: ${fmtHeight(h)} NN liegt am Startort unter Grund!`;
+    hint.textContent = `Aktiv: ${fmtHeight(h)} NN liegt ${ort} unter Grund!`;
     hint.classList.add("error");
   } else {
-    hint.textContent = `Aktiv: ${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund am Startort`;
+    hint.textContent = `Aktiv: ${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund ${ort}`;
   }
 }
 
@@ -632,7 +634,9 @@ async function loadMeta() {
   el("status").className = "";
   try {
     const meta = await (await fetch(`${API_BASE}/data/${model.dataset}/static/meta.json`)).json();
-    const t0 = meta.last_run_initialisation_time - 24 * 3600; // Vorlauf für Rückwärts/ältere Starts
+    // Der Server hält mehrere Tage Archiv (geprüft ≥5 d) — für Rückwärts-
+    // trajektorien großzügiger Vorlauf; die echte Kante meldet der Integrator.
+    const t0 = meta.last_run_initialisation_time - PAST_HOURS * 3600;
     const t1 = meta.data_end_time;
     state.meta = { t0, t1 };
     const slider = el("timeslider");
@@ -647,6 +651,7 @@ async function loadMeta() {
     el("runinfo").textContent =
       ` · Lauf ${fmtTime(meta.last_run_initialisation_time * 1000)}, Daten bis ${fmtTime(t1 * 1000)}`;
     updateTimeLabel();
+    updateReachHint();
     el("status").textContent = "";
   } catch (err) {
     el("status").textContent = `Modelllauf-Info nicht erreichbar: ${err.message}`;
@@ -660,8 +665,46 @@ function updateTimeLabel() {
   el("timelabel").textContent = fmtTime(+el("timeslider").value * 3600e3);
 }
 
-el("timeslider").addEventListener("input", updateTimeLabel);
+// Vergangenheits-Horizont für den Zeitschieber (der Server hält mehrere Tage
+// Archiv). Die echte Datenkante meldet ansonsten der Integrator.
+const PAST_HOURS = 72;
+
+// Bei Rückwärtstrajektorien ist der gesetzte Punkt/Zeitpunkt die Ankunft.
+function updateDirectionLabels() {
+  const back = +el("direction").value === -1;
+  el("pointlabel").textContent = back ? "Zielpunkt" : "Startpunkt";
+  el("timeheadlabel").innerHTML = `${back ? "Zielzeit" : "Startzeit"} <span class="hint">(UTC)</span>`;
+}
+
+// Vorab-Hinweis, wie weit die Daten in der gewählten Richtung ab dem
+// gewählten Zeitpunkt reichen — nur Transparenz, kein harter Block.
+function updateReachHint() {
+  const box = el("reachhint");
+  if (!state.meta) { box.textContent = ""; box.classList.remove("error"); return; }
+  const dir = +el("direction").value;
+  const dur = Math.min(72, Math.max(1, +el("duration").value || 12));
+  const t0Ms = +el("timeslider").value * 3600e3;
+  const back = dir === -1;
+  const edgeMs = (back ? state.meta.t0 : state.meta.t1) * 1000;
+  const availH = Math.max(0, (back ? t0Ms - edgeMs : edgeMs - t0Ms) / 3600e3);
+  const word = back ? "rückwärts" : "vorwärts";
+  if (availH < dur) {
+    box.textContent = `Nur ${Math.floor(availH)} h Daten ${word} (bis ${fmtTime(edgeMs)}) — Trajektorie endet dort.`;
+    box.classList.add("error");
+  } else {
+    box.textContent = `${dur} h ${word} bis ${fmtTime(t0Ms + dir * dur * 3600e3)} — innerhalb der Daten.`;
+    box.classList.remove("error");
+  }
+}
+
+el("timeslider").addEventListener("input", () => { updateTimeLabel(); updateReachHint(); });
 el("timeslider").addEventListener("change", persist);
+el("duration").addEventListener("input", updateReachHint);
+el("direction").addEventListener("change", () => {
+  updateDirectionLabels();
+  updateHeightContext(); // „am Startort"/„am Zielort" hängt an der Richtung
+  updateReachHint();
+});
 el("model").addEventListener("change", () => {
   persist();
   loadMeta();

@@ -135,6 +135,8 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 #activehint.accent { color: #1c5cab; font-weight: 600; }
 #heighthint { min-height: 1.2em; margin: -6px 0 8px; }
 #heighthint.error { color: #b3261e; font-weight: 600; }
+#reachhint { min-height: 1.2em; margin: -2px 0 6px; }
+#reachhint.error { color: #b3261e; font-weight: 600; }
 
 #run {
   width: 100%;

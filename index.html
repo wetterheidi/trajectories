@@ -26,11 +26,11 @@
     </label>
 
     <div class="row">
-      <span class="label">Startpunkt</span>
+      <span class="label" id="pointlabel">Startpunkt</span>
       <span id="startpos" class="mono">Karte anklicken</span>
     </div>
     <div class="row">
-      <span class="label">Startzeit <span class="hint">(UTC)</span></span>
+      <span class="label" id="timeheadlabel">Startzeit <span class="hint">(UTC)</span></span>
       <span id="timelabel" class="mono">–</span>
     </div>
     <input type="range" id="timeslider" min="0" max="0" step="1" />
@@ -46,6 +46,7 @@
         </select>
       </label>
     </div>
+    <div id="reachhint" class="hint mono"></div>
 
     <div id="methodrow">
       <div class="label">Methoden <span class="hint">(mehrere = Vergleich am aktiven Höhenpunkt)</span></div>
