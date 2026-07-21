@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trajektorien-Vergleich · Meine vs. Windy</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root { --fg:#1a2230; --muted:#667; --line:#dde3ec; --bg:#f6f8fb; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font:14px/1.45 system-ui, sans-serif; color:var(--fg); }
+  body { display:grid; grid-template-columns: 380px 1fr; height:100vh; }
+  #side { border-right:1px solid var(--line); padding:14px; overflow:auto; background:var(--bg); }
+  #map { height:100vh; }
+  h1 { font-size:16px; margin:0 0 4px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:18px 0 6px; }
+  .drop { border:1.5px dashed var(--line); border-radius:8px; padding:10px; margin-bottom:8px; background:#fff; }
+  .drop.mine { border-color:#2b7; }
+  .drop.windy { border-color:#e58; }
+  .drop label { font-weight:600; display:block; margin-bottom:4px; }
+  .drop .file { font-size:12px; color:var(--muted); }
+  input[type=file] { font-size:12px; width:100%; }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+  th, td { text-align:right; padding:4px 5px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  canvas { width:100%; height:180px; background:#fff; border:1px solid var(--line); border-radius:6px; }
+  .hint { font-size:11.5px; color:var(--muted); margin:6px 0; }
+  .pill { display:inline-block; font-size:11px; background:#eef; border-radius:10px; padding:1px 7px; margin-left:4px; }
+  .warn { color:#b60; }
+  .leg { font-size:12px; margin:2px 0; }
+  b.mono { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>Trajektorien-Vergleich</h1>
+  <div class="hint">Meine App (GeoJSON, durchgezogen) vs. Windy (GPX, gestrichelt). Zuordnung nach aufsteigender Starthöhe.</div>
+
+  <div class="drop mine">
+    <label>① Meine Trajektorien — GeoJSON</label>
+    <input type="file" id="fMine" accept=".geojson,.json,application/geo+json" />
+    <div class="file" id="nMine">keine Datei</div>
+  </div>
+  <div class="drop windy">
+    <label>② Windy — GPX</label>
+    <input type="file" id="fWindy" accept=".gpx,application/gpx+xml" />
+    <div class="file" id="nWindy">keine Datei</div>
+  </div>
+
+  <div id="report"></div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ---------- Geometrie ----------
+function haversine(a, b) { // {lat,lon} -> meter
+  const R = 6371008.8, rad = Math.PI/180;
+  const dLat=(b.lat-a.lat)*rad, dLon=(b.lon-a.lon)*rad;
+  const la1=a.lat*rad, la2=b.lat*rad;
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.min(1, Math.sqrt(h)));
+}
+// Position einer Trajektorie zum Offset (Minuten ab Start) durch lineare Zeit-Interpolation
+function posAtMinutes(track, min) {
+  const t = track.t0 + min*60000;
+  const p = track.points;
+  if (t < p[0].t || t > p[p.length-1].t) return null;
+  for (let i=1;i<p.length;i++){
+    if (t <= p[i].t){
+      const a=p[i-1], b=p[i];
+      const f = b.t===a.t ? 0 : (t-a.t)/(b.t-a.t);
+      return { lat:a.lat+f*(b.lat-a.lat), lon:a.lon+f*(b.lon-a.lon) };
+    }
+  }
+  return { lat:p[p.length-1].lat, lon:p[p.length-1].lon };
+}
+
+// lokale Ost/Nord-Meter von p relativ zu ref
+function toENU(ref, p) {
+  const rad=Math.PI/180, R=6371008.8;
+  return { e:(p.lon-ref.lon)*Math.cos(ref.lat*rad)*rad*R, n:(p.lat-ref.lat)*rad*R };
+}
+// Zerlegung der Separation relativ zur Windy-Zugrichtung
+//  along + = meine App voraus (schneller entlang der Bahn)
+//  cross + = meine App links der Zugrichtung
+function decomp(mine, windy, min) {
+  const M=posAtMinutes(mine,min), W=posAtMinutes(windy,min);
+  if (!M || !W) return null;
+  const w0=posAtMinutes(windy, Math.max(0,min-5)) || W;
+  const w1=posAtMinutes(windy, min+5) || W;
+  const hv=toENU(w0, w1);                       // Bewegungsvektor (Ost,Nord)
+  const L=Math.hypot(hv.e,hv.n)||1;
+  const ux=hv.e/L, uy=hv.n/L;
+  const sep=toENU(W, M);                        // von Windy zu meiner Position
+  return {
+    along:(sep.e*ux + sep.n*uy)/1000,
+    cross:(sep.e*(-uy) + sep.n*ux)/1000,
+    dist:Math.hypot(sep.e,sep.n)/1000
+  };
+}
+
+// Effektiver Wind (woher, km/h) aus dem Segment m0->m1 einer Trajektorie
+function segWind(track, m0, m1) {
+  const a=posAtMinutes(track,m0), b=posAtMinutes(track,m1);
+  if (!a || !b) return null;
+  const d=toENU(a,b), dtH=(m1-m0)/60;
+  const ve=d.e/1000/dtH, vn=d.n/1000/dtH;
+  return { spd:Math.hypot(ve,vn), dir:(Math.atan2(-ve,-vn)*180/Math.PI+360)%360 };
+}
+// signierte Winkeldifferenz a-b in (-180,180], + = a im Uhrzeigersinn vor b
+function angdiff(a, b) { return ((a-b+180)%360+360)%360-180; }
+
+// ---------- Parser ----------
+function parseMineGeoJSON(text) {
+  const gj = JSON.parse(text);
+  const feats = (gj.features||[]).filter(f=>f.geometry && f.geometry.type==="LineString");
+  return feats.map(f=>{
+    const coords = f.geometry.coordinates;              // [lon,lat,ele]
+    const times = (f.properties.times||[]).map(s=>Date.parse(s));
+    const points = coords.map((c,i)=>({
+      lon:c[0], lat:c[1], ele:c[2]!=null?c[2]:null,
+      t: times[i]!=null ? times[i] : NaN
+    })).filter(p=>Number.isFinite(p.t));
+    return {
+      source:"mine",
+      label: f.properties.label || `Höhe ${f.properties.start_height_m} m`,
+      startHeight: f.properties.start_height_m ?? points[0]?.ele ?? 0,
+      color: f.properties.color || "#0a7",
+      t0: points[0]?.t,
+      points
+    };
+  }).filter(tr=>tr.points.length>=2);
+}
+function parseWindyGPX(text) {
+  const xml = new DOMParser().parseFromString(text, "application/xml");
+  const trks = [...xml.getElementsByTagName("trk")];
+  return trks.map(trk=>{
+    const name = trk.getElementsByTagName("name")[0]?.textContent?.trim() || "?";
+    const g = tag => trk.getElementsByTagName(tag)[0]?.textContent?.trim();
+    const altM = parseFloat(g("alt_m"));
+    const altFt = g("alt_ft");
+    const level = g("level") || name;
+    const pts = [...trk.getElementsByTagName("trkpt")].map(pt=>({
+      lat:parseFloat(pt.getAttribute("lat")),
+      lon:parseFloat(pt.getAttribute("lon")),
+      ele:parseFloat(pt.getElementsByTagName("ele")[0]?.textContent),
+      t: Date.parse(pt.getElementsByTagName("time")[0]?.textContent)
+    })).filter(p=>Number.isFinite(p.t));
+    return {
+      source:"windy",
+      label: `${level}${altFt?` (${altFt} ft)`:""}`,
+      startHeight: Number.isFinite(altM)?altM:(pts[0]?.ele||0),
+      color: "#e0409a",
+      t0: pts[0]?.t,
+      points: pts
+    };
+  }).filter(tr=>tr.points.length>=2);
+}
+
+// ---------- State + Karte ----------
+const state = { mine:[], windy:[], layers:[] };
+const map = L.map("map").setView([48, 11.2], 9);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { maxZoom:19, attribution:"© OpenStreetMap" }).addTo(map);
+
+function drawAll() {
+  state.layers.forEach(l=>map.removeLayer(l));
+  state.layers = [];
+  const all = [...state.mine, ...state.windy];
+  const bounds = [];
+  for (const tr of all) {
+    const latlngs = tr.points.map(p=>[p.lat,p.lon]);
+    latlngs.forEach(ll=>bounds.push(ll));
+    const line = L.polyline(latlngs, {
+      color: tr.color, weight: tr.source==="mine"?3.5:3,
+      opacity:.9, dashArray: tr.source==="windy" ? "6,6" : null
+    }).addTo(map);
+    line.bindTooltip(`${tr.source==="mine"?"Meine":"Windy"}: ${tr.label}`);
+    L.circleMarker(latlngs[0], {radius:4, color:tr.color, fillOpacity:1}).addTo(map);
+    state.layers.push(line);
+  }
+  if (bounds.length) map.fitBounds(bounds, {padding:[30,30]});
+}
+
+// Paarung: beide nach Starthöhe sortieren, index-weise paaren
+function buildPairs() {
+  const m = [...state.mine].sort((a,b)=>a.startHeight-b.startHeight);
+  const w = [...state.windy].sort((a,b)=>a.startHeight-b.startHeight);
+  const n = Math.min(m.length, w.length);
+  const pairs = [];
+  for (let i=0;i<n;i++) pairs.push({ mine:m[i], windy:w[i] });
+  return pairs;
+}
+
+const GRID = Array.from({length:13}, (_,i)=>i*10); // 0..120 min
+
+function analyse() {
+  const rep = document.getElementById("report");
+  if (!state.mine.length || !state.windy.length) { rep.innerHTML=""; return; }
+  const pairs = buildPairs();
+  const series = []; // pro Paar: {label,color, pts:[{min,km}]}
+  let html = `<h2>Abweichung (km)</h2>
+    <table><thead><tr><th>Level (meine ↔ Windy)</th><th>Start</th><th>30′</th><th>60′</th><th>90′</th><th>120′</th><th>max</th></tr></thead><tbody>`;
+  for (const pr of pairs) {
+    const row = [];
+    const pts = [];
+    for (const min of GRID) {
+      const a = posAtMinutes(pr.mine, min), b = posAtMinutes(pr.windy, min);
+      if (a && b) { const km = haversine(a,b)/1000; row.push({min,km}); pts.push({min,km}); }
+      else row.push({min,km:null});
+    }
+    const at = m => { const r=row.find(x=>x.min===m); return r&&r.km!=null? r.km.toFixed(2):"–"; };
+    const maxKm = Math.max(...pts.map(p=>p.km), 0);
+    const col = pr.mine.color;
+    series.push({ label:pr.windy.label, color:col, pts });
+    html += `<tr>
+      <td><span class="swatch" style="background:${col}"></span>${pr.mine.label} ↔ ${pr.windy.label}</td>
+      <td class="mono">${at(0)}</td><td class="mono">${at(30)}</td><td class="mono">${at(60)}</td>
+      <td class="mono">${at(90)}</td><td class="mono">${at(120)}</td>
+      <td class="mono"><b>${maxKm.toFixed(2)}</b></td></tr>`;
+  }
+  html += `</tbody></table>`;
+  const startWarn = pairs.some(p => {
+    const a=posAtMinutes(p.mine,0), b=posAtMinutes(p.windy,0);
+    return a&&b && haversine(a,b) > 500;
+  });
+  if (startWarn) html += `<div class="hint warn">⚠ Startpunkte liegen &gt; 0,5 km auseinander — evtl. anderer Ort/Zeit oder Rück- statt Vorwärts.</div>`;
+  html += `<div class="hint">Starthöhen — meine (m AGL) vs. Windy (m der Druckfläche). Bei „pressure"-Modus in deiner App idealerweise Höhen wählen, die 900/800/700 hPa entsprechen.</div>`;
+  html += `<h2>Abstand über die Zeit</h2><canvas id="chart" width="700" height="360"></canvas>`;
+
+  // ----- Along-/Cross-track-Zerlegung -----
+  html += `<h2>Along- / Cross-track (km)</h2>
+    <div class="hint">Along&nbsp;+ = meine App voraus (schneller); Cross&nbsp;+ = meine App links der Windy-Zugrichtung.</div>
+    <table><thead><tr><th>Level</th><th>Along 60′</th><th>Cross 60′</th><th>Along 120′</th><th>Cross 120′</th></tr></thead><tbody>`;
+  const crossSeries = [];
+  for (const pr of pairs) {
+    const d60=decomp(pr.mine,pr.windy,60), d120=decomp(pr.mine,pr.windy,120);
+    const col=pr.mine.color;
+    const fmt=(d,k)=> d ? (d[k]>=0?'+':'')+d[k].toFixed(2) : '–';
+    html += `<tr><td><span class="swatch" style="background:${col}"></span>${pr.windy.label}</td>
+      <td class="mono">${fmt(d60,'along')}</td><td class="mono">${fmt(d60,'cross')}</td>
+      <td class="mono">${fmt(d120,'along')}</td><td class="mono">${fmt(d120,'cross')}</td></tr>`;
+    const pts = GRID.map(min=>{ const d=decomp(pr.mine,pr.windy,min); return {min, v:d?d.cross:null}; })
+                    .filter(p=>p.v!=null);
+    crossSeries.push({ label:pr.windy.label, color:col, pts });
+  }
+  html += `</tbody></table>
+    <h2>Cross-track über die Zeit</h2><canvas id="chart2" width="700" height="360"></canvas>`;
+
+  // ----- Segmentwind-Differenz (App − Windy) je 10-min-Segment -----
+  html += `<h2>Segmentwind-Differenz (App − Windy)</h2>
+    <div class="hint">Effektiver Wind je 10-min-Segment. Δdir&nbsp;+ = App weiter im Uhrzeigersinn (Wind kommt „rechter").</div>
+    <table><thead><tr><th>Level</th><th>Ø Δspeed</th><th>Ø Δdir</th><th>max |Δdir|</th></tr></thead><tbody>`;
+  const ddirSeries = [];
+  const STEP = 10;
+  for (const pr of pairs) {
+    const pts = []; let sumS=0, sumD=0, maxD=0, nn=0;
+    for (let m=0; m+STEP<=120; m+=STEP) {
+      const wm=segWind(pr.mine,m,m+STEP), ww=segWind(pr.windy,m,m+STEP);
+      if (!wm || !ww) continue;
+      const dd=angdiff(wm.dir,ww.dir), ds=wm.spd-ww.spd;
+      pts.push({ min:m+STEP/2, v:dd });
+      sumS+=ds; sumD+=dd; maxD=Math.max(maxD,Math.abs(dd)); nn++;
+    }
+    const col=pr.mine.color;
+    ddirSeries.push({ label:pr.windy.label, color:col, pts });
+    const sg=x=>(x>=0?'+':'')+x;
+    html += `<tr><td><span class="swatch" style="background:${col}"></span>${pr.windy.label}</td>
+      <td class="mono">${nn?sg((sumS/nn).toFixed(2))+' km/h':'–'}</td>
+      <td class="mono">${nn?sg((sumD/nn).toFixed(1))+'°':'–'}</td>
+      <td class="mono">${maxD.toFixed(1)}°</td></tr>`;
+  }
+  html += `</tbody></table>
+    <h2>Δ Windrichtung über die Zeit</h2><canvas id="chart3" width="700" height="360"></canvas>`;
+
+  rep.innerHTML = html;
+  drawChart(series);
+  drawSignedChart(crossSeries, "chart2", "km");
+  drawSignedChart(ddirSeries, "chart3", "°");
+}
+
+function drawSignedChart(series, id, unit) {
+  const c=document.getElementById(id); if(!c) return;
+  const ctx=c.getContext("2d"), W=c.width, H=c.height;
+  const padL=48, padB=28, padT=12, padR=10;
+  ctx.clearRect(0,0,W,H);
+  const vals=series.flatMap(s=>s.pts.map(p=>p.v));
+  const maxA=Math.max(0.2, ...vals.map(Math.abs));
+  const x=m=>padL+(m/120)*(W-padL-padR);
+  const y=v=>padT+(1-(v+maxA)/(2*maxA))*(H-padB-padT);
+  const dec=maxA<2?2:1;
+  ctx.font="11px system-ui";
+  const ticks=4;
+  for (let i=0;i<=ticks;i++){ const v=maxA-(2*maxA)*i/ticks, yy=y(v);
+    ctx.strokeStyle=Math.abs(v)<1e-9?"#bbc":"#eef"; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(W-padR,yy); ctx.stroke();
+    ctx.fillStyle="#889"; ctx.fillText((v>=0?"+":"")+v.toFixed(dec), 4, yy+4); }
+  ctx.strokeStyle="#ccd"; ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,H-padB); ctx.stroke();
+  for (let m=0;m<=120;m+=30) ctx.fillText(m+"′", x(m)-8, H-padB+16);
+  for (const s of series){ ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath();
+    s.pts.forEach((p,i)=> i?ctx.lineTo(x(p.min),y(p.v)):ctx.moveTo(x(p.min),y(p.v))); ctx.stroke();
+    s.pts.forEach(p=>{ ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(x(p.min),y(p.v),2.5,0,7); ctx.fill(); }); }
+  ctx.fillStyle="#889"; ctx.fillText(unit||"km", 6, padT+2);
+}
+
+function drawChart(series) {
+  const c = document.getElementById("chart"); if (!c) return;
+  const ctx = c.getContext("2d"), W=c.width, H=c.height;
+  const padL=44, padB=28, padT=12, padR=10;
+  ctx.clearRect(0,0,W,H);
+  const maxKm = Math.max(1, ...series.flatMap(s=>s.pts.map(p=>p.km)));
+  const x = m => padL + (m/120)*(W-padL-padR);
+  const y = km => H-padB - (km/maxKm)*(H-padB-padT);
+  // Achsen
+  ctx.strokeStyle="#ccd"; ctx.fillStyle="#889"; ctx.font="11px system-ui"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,H-padB); ctx.lineTo(W-padR,H-padB); ctx.stroke();
+  for (let m=0;m<=120;m+=30){ ctx.fillText(m+"′", x(m)-8, H-padB+16); }
+  const dec = maxKm<2 ? 2 : maxKm<10 ? 1 : 0;
+  const ticks=4;
+  for (let i=0;i<=ticks;i++){ const km=maxKm*i/ticks; const yy=y(km);
+    ctx.strokeStyle="#eef"; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(W-padR,yy); ctx.stroke();
+    ctx.fillStyle="#889"; ctx.fillText(km.toFixed(dec), 6, yy+4); }
+  ctx.fillText("km", 6, padT+2);
+  for (const s of series) {
+    ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath();
+    s.pts.forEach((p,i)=> i?ctx.lineTo(x(p.min),y(p.km)):ctx.moveTo(x(p.min),y(p.km)));
+    ctx.stroke();
+    s.pts.forEach(p=>{ ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(x(p.min),y(p.km),2.5,0,7); ctx.fill(); });
+  }
+}
+
+// ---------- Datei-Handling ----------
+function wire(inputId, nameId, kind) {
+  const inp = document.getElementById(inputId);
+  inp.addEventListener("change", async () => {
+    const f = inp.files[0]; if (!f) return;
+    document.getElementById(nameId).textContent = f.name;
+    const text = await f.text();
+    try {
+      if (kind==="mine") state.mine = parseMineGeoJSON(text);
+      else state.windy = parseWindyGPX(text);
+    } catch(e){ alert("Konnte Datei nicht lesen: "+e.message); return; }
+    drawAll(); analyse();
+  });
+}
+wire("fMine","nMine","mine");
+wire("fWindy","nWindy","windy");
+</script>
+</body>
+</html>
