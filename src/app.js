@@ -98,7 +98,13 @@ map.on("baselayerchange", (e) => {
 const state = {
   start: null,
   meta: null, // {t0, t1} Epochensekunden des verfügbaren Zeitraums
+  // Live-Modus: die „gepinnten" (inaktiven) Trajektorien bleiben stehen,
+  // während nur die aktive Linie live neu gezeichnet wird. pinLayers wird
+  // zuerst zur Karte gefügt, damit die aktive Linie (layers) darüber liegt.
+  pinLayers: L.layerGroup().addTo(map),
   layers: L.layerGroup().addTo(map),
+  pinRuns: new Map(), // Höhe(m) -> berechneter Run, damit Pins beim Scrubben nicht neu rechnen
+  pinKey: "",         // Satz der aktuell gezeichneten Pin-Höhen (für „nur bei Änderung neu zeichnen")
   startMarker: null,
   running: false,
 };
@@ -393,6 +399,8 @@ function applyModeUI() {
 el("livemode").addEventListener("change", () => {
   applyModeUI();
   state.live = null;
+  // Beim Verlassen des Live-Modus bleiben alle Trajektorien sichtbar (aktive
+  // Linie + Pins). Ein späterer „echter" Lauf zeichnet ohnehin alles neu.
   persist();
   liveRun();
 });
@@ -765,11 +773,18 @@ async function runTrajectories() {
   // Darstellung (Farbe kodiert dann die Methode statt der Höhe). Verglichen
   // wird am aktiven Balkenpunkt; die übrigen Punkte bleiben erhalten.
   const compareMode = methods.length > 1;
+  // Pin-Modus: reiner Höhen-Live-Betrieb. Die aktive Höhe rechnet bei jeder
+  // Balkenbewegung neu (Scrub), die übrigen Balkenpunkte bleiben als „Pins"
+  // stehen. Im Methodenvergleich gibt es keine Pins.
+  const pinMode = liveMode && !compareMode;
+  const allBarHeights = [...heightColors.keys()].sort((a, b) => a - b);
   // Live-Modus und Methodenvergleich rechnen an der aktiven Höhe; sonst alle
   // Höhen des Balkens.
-  const heights = (liveMode || compareMode)
+  const activeHeights = (liveMode || compareMode)
     ? (activeHeight != null ? [activeHeight] : [])
-    : [...heightColors.keys()].sort((a, b) => a - b);
+    : allBarHeights;
+  // Pins sind die übrigen Balkenhöhen (nur im Pin-Modus).
+  const pinHeights = pinMode ? allBarHeights.filter((m) => m !== activeHeight) : [];
   const markerIntervalSec = +el("markerint").value;
   const mode = el("refmode").value;
   if (!methods.length) {
@@ -779,7 +794,7 @@ async function runTrajectories() {
   const duration = Math.min(72, Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
 
-  if (!heights.length) {
+  if (!activeHeights.length) {
     return setStatus(compareMode
       ? "Bitte einen Höhenpunkt am Balken für den Vergleich wählen."
       : "Bitte eine Höhe am Balken wählen.", true);
@@ -789,10 +804,32 @@ async function runTrajectories() {
     return setStatus(`Startpunkt liegt außerhalb des ${model.label}-Gebiets.`, true);
   }
 
+  // Signatur der Nicht-Höhen-Parameter (zugleich der Windfeld-Cache-Schlüssel:
+  // Modell, Vertikaloption, Zeitfenster, Richtung, Startregion). Bleibt sie
+  // gleich, hat sich nur die aktive Höhe bewegt → Scrub-Lauf: nur die aktive
+  // Linie neu, die Pins bleiben. Ändert sie sich → Full-Lauf: alles neu.
+  const metExtras = el("metextras").checked;
+  const sig = [modelKey, methods.join("+"), t0Ms, duration, direction, metExtras,
+    Math.round(lat), Math.round(lon)].join("|");
+  const canReuse = liveMode && state.live?.sig === sig
+    && activeHeights[0] <= state.live.spanTop;
+  // Scrub (Pins behalten) nur, wenn sich wirklich ausschließlich die aktive
+  // Höhe geändert hat. pinSig fasst alle übrigen pfadbestimmenden Größen exakt
+  // (inkl. Höhenbezug und ungerundetem Startpunkt) — sonst wären die Pins zu
+  // anderen Parametern gerechnet als die aktive Linie.
+  const pinSig = [sig, mode, lat, lon].join("|");
+  const scrub = pinMode && canReuse && state.live?.pinSig === pinSig;
+
   state.running = true;
   updateRunButton();
   state.layers.clearLayers();
   el("results").innerHTML = "";
+  if (!scrub) {
+    // Full-Lauf: Pins verwerfen und frisch aufbauen.
+    state.pinLayers.clearLayers();
+    state.pinRuns.clear();
+    state.pinKey = "";
+  }
   el("download").disabled = true;
   el("xsecbtn").disabled = true;
   el("view3dbtn").disabled = true;
@@ -804,18 +841,18 @@ async function runTrajectories() {
 
   try {
     // Im Live-Modus das Windfeld über Läufe hinweg behalten, solange die
-    // Signatur (Modell, Vertikaloption, Zeitfenster, Richtung, Startregion)
-    // gleich bleibt und die Höhe ins geladene Levelfenster passt.
-    const metExtras = el("metextras").checked;
-    const sig = [modelKey, methods.join("+"), t0Ms, duration, direction, metExtras,
-      Math.round(lat), Math.round(lon)].join("|");
+    // Signatur gleich bleibt und die Höhe ins geladene Levelfenster passt.
     let wf;
-    if (liveMode && state.live?.sig === sig && heights[0] <= state.live.spanTop) {
+    if (canReuse) {
       wf = state.live.wf;
     } else {
       wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
       const tEnd = t0Ms + direction * duration * 3600e3;
-      const spanTop = liveMode ? Math.max(barMax, ...heights) : Math.max(...heights);
+      // Im Live-Modus deckt das Windfeld den ganzen Balken ab, damit auch Pins
+      // und spätere Höhenwechsel ohne Nachladen bedient werden.
+      const spanTop = liveMode
+        ? Math.max(barMax, ...activeHeights, ...pinHeights)
+        : Math.max(...activeHeights);
       await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), methods, metExtras);
       state.live = liveMode ? { wf, sig, spanTop } : null;
       if (DEBUG) {
@@ -824,44 +861,92 @@ async function runTrajectories() {
           `Zeitfenster ${wf.startDate}…${wf.endDate}`);
       }
     }
+    // Aktuelle Pin-Parameter merken (auch bei wiederverwendetem Windfeld), damit
+    // der nächste Lauf Scrub gegen genau diesen Stand prüfen kann.
+    if (state.live) state.live.pinSig = pinSig;
 
-    // Entweder mehrere Höhen × eine Methode oder eine Höhe × mehrere
-    // Methoden (oben abgesichert).
-    const jobs = heights.flatMap((heightM) => methods.map((method) => ({ heightM, method })));
-
-    const runs = [];
-    for (const { heightM, method } of jobs) {
+    // Einen Lauf (Höhe × Methode) rechnen.
+    const computeOne = async (heightM, method) => {
       const style = METHODS.find((m) => m.key === method);
       const color = compareMode ? style.color : colorFor(heightM);
       const dash = compareMode ? style.dash : null;
-      setStatus(`Berechne ${compareMode ? style.label : fmtHeight(heightM)} …`);
-      try {
-        const { target, label } = await makeTarget(wf, lat, lon, heightM, mode, method, t0Ms);
-        const r = await computeTrajectory({
-          windAt: wf.windAt.bind(wf),
-          lat0: lat, lon0: lon, target, t0Ms,
-          durationHours: duration, direction, gridMeters: model.gridMeters,
-          markerIntervalSec,
-        });
-        reportResult(r, heightM, color, label);
-        runs.push({ r, color, label, heightM, method, dash });
-      } catch (err) {
-        // Eine scheiternde Methode/Höhe soll die übrigen nicht mitreißen.
-        const line = document.createElement("div");
-        line.className = "result-line";
-        line.innerHTML = `<span class="chip" style="background:${color}"></span>` +
-          `${compareMode ? style.label : fmtHeight(heightM)} ` +
-          `<span class="note">Fehler: ${err.message}</span>`;
-        el("results").appendChild(line);
+      const { target, label } = await makeTarget(wf, lat, lon, heightM, mode, method, t0Ms);
+      const r = await computeTrajectory({
+        windAt: wf.windAt.bind(wf),
+        lat0: lat, lon0: lon, target, t0Ms,
+        durationHours: duration, direction, gridMeters: model.gridMeters,
+        markerIntervalSec,
+      });
+      return { r, color, label, heightM, method, dash };
+    };
+    // Eine scheiternde Methode/Höhe soll die übrigen nicht mitreißen.
+    const reportError = (labelText, color, err) => {
+      const line = document.createElement("div");
+      line.className = "result-line";
+      line.innerHTML = `<span class="chip" style="background:${color}"></span>` +
+        `${labelText} <span class="note">Fehler: ${err.message}</span>`;
+      el("results").appendChild(line);
+    };
+
+    // Aktive Läufe: entweder mehrere Höhen × eine Methode oder eine Höhe ×
+    // mehrere Methoden (oben abgesichert).
+    const activeRuns = [];
+    for (const heightM of activeHeights) {
+      for (const method of methods) {
+        const style = METHODS.find((m) => m.key === method);
+        setStatus(`Berechne ${compareMode ? style.label : fmtHeight(heightM)} …`);
+        try {
+          activeRuns.push(await computeOne(heightM, method));
+        } catch (err) {
+          reportError(compareMode ? style.label : fmtHeight(heightM),
+            compareMode ? style.color : colorFor(heightM), err);
+        }
       }
     }
 
-    // Zwei Zeichen-Durchgänge: erst alle weißen Unterlagen, dann alle
-    // Farblinien — sonst übermalt die Unterlage einer späteren Trajektorie
-    // die früheren, wo die Pfade (fast) übereinanderliegen, und in
-    // Strichlücken erschiene Weiß statt der darunterliegenden Linie.
-    for (const run of runs) drawCasing(run.r);
-    for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash);
+    // Pins: aus dem Cache halten, nur fehlende (z. B. gerade deaktivierte)
+    // Höhen einmalig mit dem gecachten Windfeld nachrechnen.
+    const pinRunList = [];
+    if (pinMode) {
+      for (const heightM of pinHeights) {
+        let run = state.pinRuns.get(heightM);
+        if (!run) {
+          try {
+            run = await computeOne(heightM, methods[0]);
+            state.pinRuns.set(heightM, run);
+          } catch (err) {
+            reportError(fmtHeight(heightM), colorFor(heightM), err);
+            continue;
+          }
+        }
+        pinRunList.push(run);
+      }
+      // Cache von Höhen befreien, die nicht mehr Pin sind (weg vom Balken oder
+      // jetzt aktiv).
+      for (const m of [...state.pinRuns.keys()]) {
+        if (!pinHeights.includes(m)) state.pinRuns.delete(m);
+      }
+    }
+
+    // Zeichnen. Pins nur neu, wenn sich ihr Satz geändert hat — reines Ziehen
+    // der aktiven Höhe lässt die Pins unangetastet (kein Flackern). Je Layer
+    // zwei Durchgänge (erst alle weißen Unterlagen, dann alle Farblinien),
+    // sonst übermalt die Unterlage einer Linie die Nachbarlinie, wo Pfade
+    // (fast) übereinanderliegen, und in Strichlücken erschiene Weiß.
+    const pinKey = pinHeights.join(",");
+    if (!scrub || pinKey !== state.pinKey) {
+      state.pinLayers.clearLayers();
+      for (const run of pinRunList) drawCasing(run.r, state.pinLayers);
+      for (const run of pinRunList) drawTrajectory(run.r, run.color, run.label, run.dash, state.pinLayers);
+      state.pinKey = pinKey;
+    }
+    for (const run of activeRuns) drawCasing(run.r, state.layers);
+    for (const run of activeRuns) drawTrajectory(run.r, run.color, run.label, run.dash, state.layers);
+
+    // Alle sichtbaren Läufe (aktiv + Pins) nach Höhe sortiert — Ergebnisliste,
+    // Querschnitt und 3D-Ansicht spiegeln so das gesamte Bild.
+    const runs = [...activeRuns, ...pinRunList].sort((a, b) => a.heightM - b.heightM);
+    for (const run of runs) reportResult(run.r, run.heightM, run.color, run.label);
     state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = runs.length === 0;
 
@@ -916,17 +1001,17 @@ async function makeTarget(wf, lat, lon, heightM, mode, vmotion, t0Ms) {
 
 // Weiße Unterlage als Kontrast-Ausgleich auf Kartenkacheln (eigener
 // Durchgang vor allen Farblinien, siehe runTrajectories).
-function drawCasing(r) {
+function drawCasing(r, layer = state.layers) {
   if (r.points.length < 2) return;
   L.polyline(r.points.map((p) => [p.lat, p.lon]), {
     color: "#ffffff", weight: 6, opacity: 0.85, interactive: false,
-  }).addTo(state.layers);
+  }).addTo(layer);
 }
 
-function drawTrajectory(r, color, label, dash = null) {
+function drawTrajectory(r, color, label, dash = null, layer = state.layers) {
   if (r.points.length < 2) return;
   const latlngs = r.points.map((p) => [p.lat, p.lon]);
-  L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash }).addTo(state.layers)
+  L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash }).addTo(layer)
     .bindTooltip(label, { sticky: true });
 
   for (const m of r.markers) {
@@ -934,7 +1019,7 @@ function drawTrajectory(r, color, label, dash = null) {
     const zLine = Number.isFinite(m.z) ? `<br>${fmtHeight(m.z)} NN` : "";
     const marker = L.circleMarker([m.lat, m.lon], {
       radius: 4, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1,
-    }).addTo(state.layers).bindTooltip(
+    }).addTo(layer).bindTooltip(
       `<div class="marker-tip">${fmtTime(m.tMs)}<br>${label}<br>` +
       `${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°${zLine}` +
       `${m.met ? "<br><em>klicken für Details</em>" : ""}</div>`,
