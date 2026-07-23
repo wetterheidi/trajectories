@@ -151,9 +151,10 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 }
 #run:disabled { background: #9c9b95; cursor: default; }
 
+#downloadrow { display: flex; gap: 8px; margin-top: 8px; }
+#downloadrow select { flex: none; }
 #download {
-  width: 100%;
-  margin-top: 8px;
+  flex: 1;
   padding: 6px;
   font: inherit;
   color: #1c5cab;

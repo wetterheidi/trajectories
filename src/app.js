@@ -1123,20 +1123,41 @@ el("view3dbtn").addEventListener("click", async () => {
 });
 el("v3d-close").addEventListener("click", hide3D);
 
-// --- GeoJSON-Export ---------------------------------------------------------
+// --- Export (GeoJSON / GPX / KML) -------------------------------------------
+const DOWNLOAD_FORMATS = {
+  geojson: { ext: "geojson", type: "application/geo+json", build: (d) => JSON.stringify(buildGeoJSON(d)) },
+  gpx: { ext: "gpx", type: "application/gpx+xml", build: buildGPX },
+  kml: { ext: "kml", type: "application/vnd.google-earth.kml+xml", build: buildKML },
+};
+
 el("download").addEventListener("click", () => {
   if (!state.lastRuns) return;
-  const blob = new Blob([JSON.stringify(buildGeoJSON(state.lastRuns))], {
-    type: "application/geo+json",
-  });
+  const fmt = DOWNLOAD_FORMATS[el("downloadfmt").value] ?? DOWNLOAD_FORMATS.geojson;
+  const blob = new Blob([fmt.build(state.lastRuns)], { type: fmt.type });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   const stamp = new Date(state.lastRuns.t0Ms).toISOString().slice(0, 16)
     .replace(/[-:]/g, "").replace("T", "_");
-  a.download = `trajektorien_${state.lastRuns.modelKey}_${stamp}Z.geojson`;
+  a.download = `trajektorien_${state.lastRuns.modelKey}_${stamp}Z.${fmt.ext}`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
+
+/** Trackname mit Start- und Zielhöhe (AMSL, in Metern wie die Höhenwerte in
+ *  der Datei). Vorwärts: Start → Ziel; rückwärts: Ankunft ← Herkunft. */
+function trackName({ r, label }, direction) {
+  const m = (z) => Number.isFinite(z) ? `${Math.round(z)} m` : "?";
+  const z0 = m(r.points[0]?.z);
+  const zEnd = m(r.points.at(-1)?.z);
+  return direction > 0
+    ? `${label} · Start ${z0} → Ziel ${zEnd}`
+    : `${label} · Ziel ${z0} ← Herkunft ${zEnd}`;
+}
+
+function xmlEsc(s) {
+  return String(s).replace(/[<>&'"]/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
+}
 
 function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
   const rd = (x) => Math.round(x * 1e5) / 1e5;
@@ -1191,6 +1212,100 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
     }
   }
   return { type: "FeatureCollection", features };
+}
+
+/** GPX 1.1 — jede Trajektorie als eigener <trk> mit Farbe (gpx_style-Extension,
+ *  Hex; zusätzlich Garmins gpxx:DisplayColor als nächster Standardname). */
+function buildGPX({ runs, modelKey, t0Ms, direction }) {
+  const iso = (ms) => new Date(ms).toISOString();
+  const out = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<gpx version="1.1" creator="Windtrajektorien"' +
+      ' xmlns="http://www.topografix.com/GPX/1/1"' +
+      ' xmlns:gpx_style="http://www.topografix.com/GPX/gpx_style/0/2"' +
+      ' xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">',
+    `  <metadata><name>Trajektorien ${xmlEsc(modelKey)}</name><time>${iso(t0Ms)}</time></metadata>`,
+  ];
+  for (const run of runs) {
+    const hex = run.color.replace("#", "").toLowerCase();
+    out.push("  <trk>");
+    out.push(`    <name>${xmlEsc(trackName(run, direction))}</name>`);
+    out.push("    <extensions>");
+    out.push(`      <gpx_style:line><gpx_style:color>${hex}</gpx_style:color></gpx_style:line>`);
+    out.push(`      <gpxx:TrackExtension><gpxx:DisplayColor>${gpxNamedColor(run.color)}</gpxx:DisplayColor></gpxx:TrackExtension>`);
+    out.push("    </extensions>");
+    out.push("    <trkseg>");
+    for (const p of run.r.points) {
+      const ele = Number.isFinite(p.z) ? `<ele>${Math.round(p.z)}</ele>` : "";
+      out.push(`      <trkpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}">${ele}<time>${iso(p.tMs)}</time></trkpt>`);
+    }
+    out.push("    </trkseg>");
+    out.push("  </trk>");
+  }
+  out.push("</gpx>");
+  return out.join("\n");
+}
+
+/** KML — jede Trajektorie als eigenes Placemark mit eigenem LineStyle (Farbe
+ *  als aabbggrr). Höhen absolut (AMSL); tessellate für saubere Bodenprojektion. */
+function buildKML({ runs, modelKey, direction }) {
+  const out = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<kml xmlns="http://www.opengis.net/kml/2.2">',
+    "  <Document>",
+    `    <name>Trajektorien ${xmlEsc(modelKey)}</name>`,
+  ];
+  for (const run of runs) {
+    const pts = run.r.points;
+    const has3d = pts.some((p) => Number.isFinite(p.z));
+    // Fehlende Höhen (z == null) mit dem nächstbekannten Wert füllen, damit im
+    // absoluten Modus kein Ausreißer auf Meereshöhe entsteht.
+    const zFill = pts.map((p) => p.z);
+    for (let i = 1; i < zFill.length; i++) if (!Number.isFinite(zFill[i])) zFill[i] = zFill[i - 1];
+    for (let i = zFill.length - 2; i >= 0; i--) if (!Number.isFinite(zFill[i])) zFill[i] = zFill[i + 1];
+    const coords = pts
+      .map((p, i) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)},${Number.isFinite(zFill[i]) ? Math.round(zFill[i]) : 0}`)
+      .join(" ");
+    out.push("    <Placemark>");
+    out.push(`      <name>${xmlEsc(trackName(run, direction))}</name>`);
+    out.push(`      <Style><LineStyle><color>${kmlColor(run.color)}</color><width>3</width></LineStyle></Style>`);
+    out.push("      <LineString>");
+    out.push(`        <altitudeMode>${has3d ? "absolute" : "clampToGround"}</altitudeMode>`);
+    out.push("        <tessellate>1</tessellate>");
+    out.push(`        <coordinates>${coords}</coordinates>`);
+    out.push("      </LineString>");
+    out.push("    </Placemark>");
+  }
+  out.push("  </Document>", "</kml>");
+  return out.join("\n");
+}
+
+/** #rrggbb → KML-Farbe aabbggrr (voll deckend). */
+function kmlColor(hex) {
+  const h = hex.replace("#", "");
+  return `ff${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toLowerCase();
+}
+
+/** Nächster der 16 Garmin-Standardfarbnamen zu #rrggbb (für gpxx:DisplayColor,
+ *  das nur benannte Farben kennt). Der exakte Hex steckt in gpx_style:color. */
+function gpxNamedColor(hex) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const palette = [
+    ["Black", 0, 0, 0], ["DarkRed", 139, 0, 0], ["DarkGreen", 0, 100, 0],
+    ["DarkYellow", 139, 139, 0], ["DarkBlue", 0, 0, 139], ["DarkMagenta", 139, 0, 139],
+    ["DarkCyan", 0, 139, 139], ["LightGray", 211, 211, 211], ["DarkGray", 105, 105, 105],
+    ["Red", 255, 0, 0], ["Green", 0, 255, 0], ["Yellow", 255, 255, 0],
+    ["Blue", 0, 0, 255], ["Magenta", 255, 0, 255], ["Cyan", 0, 255, 255], ["White", 255, 255, 255],
+  ];
+  let best = "DarkGray", bestD = Infinity;
+  for (const [name, pr, pg, pb] of palette) {
+    const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+    if (d < bestD) { bestD = d; best = name; }
+  }
+  return best;
 }
 
 // --- Helfer -----------------------------------------------------------------

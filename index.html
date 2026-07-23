@@ -81,7 +81,14 @@
     <button id="run" disabled>Trajektorien berechnen</button>
     <div id="status"></div>
     <div id="results"></div>
-    <button id="download" class="secondary" disabled>GeoJSON herunterladen</button>
+    <div id="downloadrow">
+      <select id="downloadfmt" aria-label="Downloadformat">
+        <option value="geojson" selected>GeoJSON</option>
+        <option value="gpx">GPX</option>
+        <option value="kml">KML</option>
+      </select>
+      <button id="download" class="secondary" disabled>Herunterladen</button>
+    </div>
     <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
     <button id="view3dbtn" class="secondary" disabled>3D-Ansicht</button>
 
