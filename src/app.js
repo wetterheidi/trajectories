@@ -1184,6 +1184,8 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
         status: r.status,
         stop_reason: r.reason,
         color,
+        stroke: color,
+        "stroke-width": 2,
         times: r.points.map((p) => iso(p.tMs)),
       },
     });
@@ -1200,6 +1202,7 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
           wind_speed_kmh: Math.round(spd),
           wind_direction_deg: Math.round(dir),
           color,
+          "marker-color": color,
           ...(m.met ? {
             temperature_c: round1(m.met.t),
             dewpoint_c: round1(m.met.td),
