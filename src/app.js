@@ -45,7 +45,6 @@ function persist() {
     activeHeight,
     barMax,
     start: state.start,
-    timeHour: +el("timeslider").value || null,
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
     units: { ...unitState },
@@ -651,10 +650,10 @@ async function loadMeta() {
     const prev = +slider.value || null;
     slider.min = Math.ceil(t0 / 3600);
     slider.max = Math.floor(t1 / 3600);
-    // Beim ersten Laden gespeicherte Startzeit übernehmen, bei Modellwechsel
-    // die aktuelle behalten — jeweils auf den verfügbaren Zeitraum begrenzt.
-    const want = prev ?? (Number.isFinite(saved.timeHour) ? saved.timeHour : null)
-      ?? Math.round(Date.now() / 3600e3);
+    // Beim ersten Laden auf die aktuelle Uhrzeit (auf volle Stunde gerundet)
+    // stellen, bei Modellwechsel die gewählte Zeit behalten — jeweils auf den
+    // verfügbaren Zeitraum begrenzt.
+    const want = prev ?? Math.round(Date.now() / 3600e3);
     slider.value = Math.min(Math.max(want, +slider.min), +slider.max);
     el("runinfo").textContent =
       ` · Lauf ${fmtTime(meta.last_run_initialisation_time * 1000)}, Daten bis ${fmtTime(t1 * 1000)}`;
