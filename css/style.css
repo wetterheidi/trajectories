@@ -175,6 +175,27 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 #settings { margin-top: 8px; }
 #settings summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
 
+#gpxupload { width: 100%; margin: 4px 0 8px; font-size: 12px; }
+#gpxlist { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
+.gpx-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.gpx-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpx-rm {
+  border: none; background: none; color: #52514e; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; flex: none;
+}
+.gpx-rm:hover { color: #b3261e; }
+#gpxclear {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: #1c5cab;
+  background: #fff;
+  border: 1px solid #1c5cab;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
 .footer { margin-top: 10px; font-size: 11px; color: #52514e; line-height: 1.5; }
 
 .marker-tip { font-variant-numeric: tabular-nums; }
@@ -341,8 +362,9 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   }
 
   /* Touch-Ziele vergrößern; 16px verhindert den Auto-Zoom von iOS Safari. */
-  select, input[type="number"], input[type="password"], button { font-size: 16px; }
+  select, input[type="number"], input[type="password"], input[type="file"], button { font-size: 16px; }
   select, input[type="number"] { padding: 6px 8px; }
+  .gpx-rm { font-size: 18px; padding: 2px 8px; }
   #run { padding: 12px; }
   #download, #xsecbtn, #view3dbtn { padding: 10px; }
   #heightbar { width: 76px; height: 240px; }

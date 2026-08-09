@@ -106,6 +106,8 @@ const state = {
   pinKey: "",         // Satz der aktuell gezeichneten Pin-Höhen (für „nur bei Änderung neu zeichnen")
   startMarker: null,
   running: false,
+  uploadLayers: L.layerGroup().addTo(map), // eigene GPX-Tracks, unabhängig von berechneten Trajektorien
+  uploads: new Map(), // id -> { name, color, layer, count }
 };
 
 // --- Höhen-Auswahl: Höhenbalken mit anklickbaren Punkten --------------------
@@ -1052,6 +1054,156 @@ function reportResult(r, heightM, color, label) {
     `${label} <span class="note">${note}</span>`;
   el("results").appendChild(line);
 }
+
+// --- Eigene GPX-Tracks (Upload) ----------------------------------------------
+// Von Trajektorien unabhängige Ebene (state.uploadLayers): bleibt beim
+// Neuberechnen/Live-Scrubben unverändert stehen, bis die Nutzerin sie entfernt.
+// Kein localStorage — Trackdaten aus Fremdquellen können beliebig groß sein.
+const UPLOAD_COLORS = ["#6a3fa0", "#00838f", "#8d6e00", "#5d4037", "#546e7a", "#ad1457"];
+let uploadSeq = 0;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function nextUploadColor() {
+  const used = new Set([...state.uploads.values()].map((u) => u.color));
+  return UPLOAD_COLORS.find((c) => !used.has(c)) ?? UPLOAD_COLORS[state.uploads.size % UPLOAD_COLORS.length];
+}
+
+/** Minimaler GPX-Parser: Tracks (trk/trkseg), Routen (rte) als Linien,
+ *  eigenständige Wegpunkte (wpt) als Punkte. Fremdquellen liefern oft nur
+ *  eines davon, daher werden alle drei toleriert. */
+function parseGPX(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) {
+    throw new Error("kein gültiges XML/GPX");
+  }
+  const firstText = (node, tag) => {
+    const v = node.getElementsByTagName(tag)[0]?.textContent?.trim();
+    return v ? escapeHtml(v) : null;
+  };
+  const linePts = (node, ptTag) => {
+    const pts = [];
+    for (const pt of node.getElementsByTagName(ptTag)) {
+      const lat = parseFloat(pt.getAttribute("lat"));
+      const lon = parseFloat(pt.getAttribute("lon"));
+      if (Number.isFinite(lat) && Number.isFinite(lon)) pts.push([lat, lon]);
+    }
+    return pts;
+  };
+
+  const lines = []; // { name, points: [[lat,lon], ...] }
+  const points = []; // { name, lat, lon }
+
+  for (const trk of doc.getElementsByTagName("trk")) {
+    const pts = linePts(trk, "trkpt");
+    if (pts.length >= 2) lines.push({ name: firstText(trk, "name"), points: pts });
+  }
+  for (const rte of doc.getElementsByTagName("rte")) {
+    const pts = linePts(rte, "rtept");
+    if (pts.length >= 2) lines.push({ name: firstText(rte, "name"), points: pts });
+  }
+  for (const wpt of doc.getElementsByTagName("wpt")) {
+    if (wpt.parentNode !== doc.documentElement) continue; // nur freistehende Wegpunkte
+    const lat = parseFloat(wpt.getAttribute("lat"));
+    const lon = parseFloat(wpt.getAttribute("lon"));
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      points.push({ name: firstText(wpt, "name"), lat, lon });
+    }
+  }
+  if (!lines.length && !points.length) {
+    throw new Error("keine Track-, Routen- oder Wegpunkte gefunden");
+  }
+  return { lines, points };
+}
+
+function renderGpxList() {
+  const list = el("gpxlist");
+  list.replaceChildren();
+  for (const [id, up] of state.uploads) {
+    const row = document.createElement("div");
+    row.className = "gpx-row";
+
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background = up.color;
+
+    const name = document.createElement("span");
+    name.className = "gpx-name";
+    name.title = up.name;
+    name.textContent = up.name;
+
+    const count = document.createElement("span");
+    count.className = "hint";
+    count.textContent = `${up.count} Pkt.`;
+
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "gpx-rm";
+    rm.title = "Entfernen";
+    rm.textContent = "×";
+    rm.addEventListener("click", () => removeGpxUpload(id));
+
+    row.append(chip, name, count, rm);
+    list.appendChild(row);
+  }
+  el("gpxclear").hidden = state.uploads.size === 0;
+}
+
+function removeGpxUpload(id) {
+  const up = state.uploads.get(id);
+  if (!up) return;
+  state.uploadLayers.removeLayer(up.layer);
+  state.uploads.delete(id);
+  renderGpxList();
+}
+
+el("gpxclear").addEventListener("click", () => {
+  state.uploadLayers.clearLayers();
+  state.uploads.clear();
+  renderGpxList();
+});
+
+el("gpxupload").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = ""; // erneutes Hochladen derselben Datei erlauben
+  let lastErr = null;
+  for (const file of files) {
+    try {
+      const { lines, points } = parseGPX(await file.text());
+      const id = `up${++uploadSeq}`;
+      const color = nextUploadColor();
+      const layer = L.layerGroup();
+      let count = 0;
+      for (const ln of lines) {
+        count += ln.points.length;
+        L.polyline(ln.points, { color: "#ffffff", weight: 6, opacity: 0.7, interactive: false }).addTo(layer);
+        L.polyline(ln.points, { color, weight: 3, opacity: 0.9, dashArray: "6 4" })
+          .addTo(layer)
+          .bindTooltip(escapeHtml(ln.name || file.name), { sticky: true });
+      }
+      for (const p of points) {
+        count += 1;
+        L.circleMarker([p.lat, p.lon], { radius: 5, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1 })
+          .addTo(layer)
+          .bindTooltip(escapeHtml(p.name || file.name), { sticky: true });
+      }
+      layer.addTo(state.uploadLayers);
+      state.uploads.set(id, { name: file.name, color, layer, count });
+    } catch (err) {
+      lastErr = `${file.name}: ${err.message}`;
+    }
+  }
+  renderGpxList();
+  if (state.uploadLayers.getLayers().length) {
+    const bounds = state.uploadLayers.getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds, { maxZoom: 13, padding: [30, 30] });
+  }
+  if (lastErr) setStatus(`GPX-Import: ${lastErr}`, true);
+});
 
 // --- Querschnitt ------------------------------------------------------------
 function showCrossSection(show) {
