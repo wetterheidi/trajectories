@@ -1,0 +1,28 @@
+[Unit]
+Description=Trajectories API (FastAPI / uvicorn)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=openmeteo-api
+Group=openmeteo-api
+WorkingDirectory=/home/mah/src/trajectories/python
+EnvironmentFile=-/etc/default/trajectories-api.env
+Environment=TRAJECTORIES_OM_ROOT=/open-meteo
+Environment=TRAJECTORIES_BACKEND=auto
+# Bind loopback only; Caddy terminates TLS and reverse-proxies.
+# Requires traverse on /home/mah (mode 700), e.g.:
+#   sudo setfacl -m u:openmeteo-api:--x /home/mah
+ExecStart=/home/mah/src/trajectories/python/.venv/bin/uvicorn \
+  trajectories.api:app \
+  --host 127.0.0.1 \
+  --port 8010 \
+  --proxy-headers \
+  --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

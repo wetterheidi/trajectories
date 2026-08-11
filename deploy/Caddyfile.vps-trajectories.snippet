@@ -1,0 +1,13 @@
+# Add inside the existing `vps.mah.priv.at { ... }` block in /etc/caddy/Caddyfile.
+# Generate the bcrypt hash (do not commit plaintext passwords):
+#   caddy hash-password --plaintext 'YOUR_PASSWORD'
+#
+# After editing:
+#   sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+	# Password-gated static UI at /trajectories/ (files under /var/www/vps/trajectories)
+	basic_auth /trajectories* {
+		trajectories REPLACE_WITH_BCRYPT_HASH
+	}
+
+	header /trajectories/index.html Cache-Control "no-cache"

@@ -8,14 +8,18 @@ bereitgestellt von Michael).
 ## Start
 
 ```bash
-npm install
-npm run dev        # Entwicklungsserver (Vite)
-npm test           # Integrator-Tests (synthetische Windfelder, offline)
-npm run test:live  # Live-Test gegen den Server
+bun install
+bun run dev        # Entwicklungsserver (Vite)
+bun test           # Integrator-Tests (synthetische Windfelder, offline)
+bun run test:live  # Live-Test gegen den Server
+bun run deploy:vps # Build → https://vps.mah.priv.at/trajectories/ (Caddy Basic Auth)
 ```
 
-Die App ist reines ESM ohne Build-Zwang — jeder statische Webserver im
-Projektwurzelverzeichnis funktioniert ebenfalls.
+Die 2D-App ist ESM und kann ohne Build aus dem Projektwurzelverzeichnis
+serviert werden; die **3D-Ansicht** braucht Cesium-Assets und damit
+`bun run build` sowie Auslieferung von `dist/` (lokal: `bun run preview`,
+VPS: `bun run deploy:vps`). Basic Auth: siehe [`deploy/README.md`](deploy/README.md).
+Die Trajectories-HTTP-API bleibt unter `https://trajectory.mah.priv.at`.
 
 ## Bedienung
 
@@ -38,16 +42,16 @@ Höhen und Bodenhöhe über alle Streifen. Die Geländehöhen stammen aus den
 bereits gecachten Gitterpunkten (Modellorographie, keine zusätzlichen Abrufe).
 
 „3D-Ansicht" öffnet die zuletzt berechneten Trajektorien als Höhenlinien über
-echtem Gelände (CesiumJS, erst beim ersten Öffnen vom CDN geladen). Jede
+echtem Gelände (CesiumJS, per Vite gebündelt; 3D-Modul lazy). Jede
 Trajektorie bekommt eine halbtransparente Wand zum Boden, die Zeitmarken sind
 anklickbare Punkte mit denselben Details wie in 2D. Der Überhöhungs-Schieber
 (×1–×20) skaliert Gelände und Trajektorien gemeinsam — ohne Überhöhung wirken
 Trajektorien über hunderte Kilometer optisch flach. Gelände wählbar:
-**Re:Earth** (frei, ohne Token, Standard), **Cesium World Terrain** (braucht
-einen kostenlosen Ion-Token, Eingabefeld erscheint bei Auswahl) oder **flach**;
-bei Dienstausfall fällt die Ansicht automatisch auf flach zurück. Die
-Kartengrundlage ist wählbar (Esri-Satellit hybrid als Standard — das
-OSM-Raster verzerrt über steilem, überhöhtem Gelände; OSM bleibt wählbar).
+**Re:Earth** (frei, ohne Token, Standard; Mapterhorn-DEM als quantized-mesh),
+**Cesium World Terrain** (braucht einen kostenlosen Ion-Token, Eingabefeld
+erscheint bei Auswahl) oder **flach**; bei Dienstausfall fällt die Ansicht
+automatisch auf flach zurück. Die Kartengrundlage ist wählbar (Esri-Satellit
+hybrid als Standard; auch OSM).
 Kamera-Knöpfe am rechten Rand (Zoom, Kippen, Drehen, ⌂ = zentrieren) machen
 die Ansicht ohne Maus bedienbar; sie kreisen um den Geländepunkt in der
 Bildmitte. Mit Maus/Trackpad: Ziehen = verschieben, Strg+Ziehen =
@@ -128,7 +132,7 @@ plus die Zeitmarken als Points mit Wind.
 | `src/windfield.js` | Datenzugriff: Levelfenster, Punkt-Cache, 4-D-Interpolation |
 | `src/config.js` | Server, Modellgitter/BBoxen, feste Höhen-Farbzuordnung |
 | `src/app.js` | Leaflet-UI |
-| `src/view3d.js` | 3D-Ansicht (CesiumJS, lazy vom CDN; Terrain-Streaming, Überhöhung, Höhenabgleich) |
+| `src/view3d.js` | 3D-Ansicht (CesiumJS lazy; Re:Earth / Ion / flat; Esri / OSM) |
 | `test/` | Offline-Tests (Kreisschluss, Umkehrbarkeit) + Live-Smoke-Test |
 
 Levelzählung der API: N=1 oberstes Level, N=65 (D2) bzw. N=74 (EU) unterstes

@@ -1,0 +1,17 @@
+# Sketch for /etc/caddy/Caddyfile — domain already points at this VPS.
+# After editing: sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+trajectory.mah.priv.at {
+	reverse_proxy 127.0.0.1:8010 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+
+	# Large GeoJSON trajectories; browsers negotiate gzip or zstd.
+	encode gzip zstd
+
+	log {
+		output file /var/log/caddy/trajectory.log
+	}
+}

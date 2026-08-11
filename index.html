@@ -29,6 +29,11 @@
       <span class="label" id="pointlabel">Startpunkt</span>
       <span id="startpos" class="mono">Karte anklicken</span>
     </div>
+    <div class="geocode-wrap">
+      <input type="search" id="geocode" aria-label="Ort suchen"
+             placeholder="Ort suchen …" autocomplete="off" />
+      <ul id="geocode-results" role="listbox" aria-label="Suchergebnisse" hidden></ul>
+    </div>
     <div class="row">
       <span class="label" id="timeheadlabel">Startzeit <span class="hint">(UTC)</span></span>
       <span id="timelabel" class="mono">–</span>
@@ -94,6 +99,10 @@
 
     <details id="settings">
       <summary>Einstellungen</summary>
+      <label class="row">
+        <span class="label">API abrufen <span class="hint">(trajectory.mah.priv.at statt Browser-Rechnung)</span></span>
+        <input type="checkbox" id="useapi" checked />
+      </label>
       <label class="row">
         <span class="label">Zusatzparameter <span class="hint">(T, Td, RH an den Marken)</span></span>
         <input type="checkbox" id="metextras" />

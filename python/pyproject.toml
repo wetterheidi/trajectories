@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trajectories"
+version = "0.1.0"
+description = "ICON wind trajectories (Open-Meteo) — GeoJSON CLI/library port of the web app"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+om = [
+  "omfiles[grids,fsspec]>=1.2",
+  "watchdog>=4.0",
+]
+api = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
+accel = [
+  "numba>=0.60",
+]
+dev = [
+  "pytest>=8",
+  "playwright>=1.40",
+  "omfiles[grids,fsspec]>=1.2",
+  "watchdog>=4.0",
+  "numba>=0.60",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+trajectories = "trajectories.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["trajectories*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "windy: Playwright visual comparison against Windy (set RUN_WINDY_TESTS=1)",
+  "web_py: Playwright web app GeoJSON vs Python (set RUN_WEB_PY_TESTS=1)",
+  "om: local OM-files backend tests (set RUN_OM_TESTS=1; needs /open-meteo)",
+]

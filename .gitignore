@@ -1,3 +1,16 @@
 node_modules/
 dist/
 .DS_Store
+untracked
+.venv/
+python/.venv/
+python/examples/out_example.geojson
+python/examples/out_api_example.geojson
+python/examples/out_api_point_wind.json
+python/examples/out_api_flight_profile.geojson
+__pycache__/
+*.egg-info/
+.pytest_cache/
+python/**/__pycache__/
+python/tests/artifacts/
+.vscode

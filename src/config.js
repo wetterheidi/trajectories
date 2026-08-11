@@ -1,5 +1,8 @@
 export const API_BASE = "https://open-meteo.mah.priv.at";
 
+/** FastAPI trajectories service (GeoJSON). Used when „API abrufen“ is checked. */
+export const TRAJECTORY_API = "https://trajectory.mah.priv.at";
+
 // Levelzählung der API: N=1 oberstes, N=nLevels unterstes Modelllevel (~10 m AGL).
 export const MODELS = {
   icon_d2: {

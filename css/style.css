@@ -41,13 +41,43 @@ html, body {
 .hint { font-weight: 400; color: #52514e; font-size: 12px; }
 .mono { font-variant-numeric: tabular-nums; }
 
-select, input[type="number"] {
+select, input[type="number"], input[type="search"] {
   font: inherit;
   padding: 3px 6px;
   border: 1px solid #c9c8c2;
   border-radius: 5px;
   background: #fff;
 }
+
+.geocode-wrap { position: relative; margin: 0 0 6px; }
+#geocode { width: 100%; }
+#geocode-results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #c9c8c2;
+  border-radius: 5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+}
+#geocode-results li {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  font-size: 13px;
+  line-height: 1.3;
+}
+#geocode-results li:last-child { border-bottom: none; }
+#geocode-results li:hover,
+#geocode-results li.active { background: #eef4fb; }
+#geocode-results .geo-sub { display: block; color: #52514e; font-size: 11px; }
 
 input[type="range"] { width: 100%; margin: 4px 0 8px; }
 

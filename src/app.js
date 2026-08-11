@@ -1,5 +1,5 @@
 import {
-  API_BASE, MODELS, SERIES_COLORS, DEFAULT_HEIGHTS,
+  API_BASE, TRAJECTORY_API, MODELS, SERIES_COLORS, DEFAULT_HEIGHTS,
   HEIGHT_MIN, HEIGHT_MAX, MARKER_INTERVALS, METHODS,
 } from "./config.js";
 import { WindField } from "./windfield.js";
@@ -9,6 +9,7 @@ import {
   setUnits, unitState, fmtHeight, fmtWind, heightUnit,
   heightToDisplay, heightFromDisplay, heightSliderCfg,
 } from "./units.js";
+import { initGeocode } from "./geocode.js";
 
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
@@ -38,7 +39,7 @@ function persist() {
   const s = {
     model: el("model").value,
     refmode: el("refmode").value,
-    markerIntervalSec: +el("markerint").value || 3600,
+    markerIntervalSec: +el("markerint").value || 600,
     duration: +el("duration").value || 12,
     direction: el("direction").value,
     heights: [...heightColors].map(([m, color]) => ({ m, color })),
@@ -51,6 +52,7 @@ function persist() {
     liveMode: el("livemode").checked,
     methods: selectedMethods(),
     metExtras: el("metextras").checked,
+    useApi: el("useapi").checked,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -398,6 +400,9 @@ function applyModeUI() {
 }
 
 el("livemode").addEventListener("change", () => {
+  if (el("livemode").checked && el("useapi").checked) {
+    el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
+  }
   applyModeUI();
   state.live = null;
   // Beim Verlassen des Live-Modus bleiben alle Trajektorien sichtbar (aktive
@@ -470,7 +475,7 @@ for (const min of MARKER_INTERVALS) {
   const opt = document.createElement("option");
   opt.value = min * 60;
   opt.textContent = min < 60 ? `${min} min` : `${min / 60} h`;
-  if (min * 60 === (saved.markerIntervalSec ?? 3600)) opt.selected = true;
+  if (min * 60 === (saved.markerIntervalSec ?? 600)) opt.selected = true;
   el("markerint").appendChild(opt);
 }
 
@@ -555,6 +560,18 @@ if (Array.isArray(saved.methods) && saved.methods.length) {
 applyModeUI();
 
 if (saved.metExtras) el("metextras").checked = true;
+el("useapi").checked = saved.useApi !== false;
+if (el("useapi").checked && el("livemode").checked) {
+  el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
+}
+el("useapi").addEventListener("change", () => {
+  if (el("useapi").checked && el("livemode").checked) {
+    el("livemode").checked = false;
+    state.live = null;
+  }
+  persist();
+  updateRunButton();
+});
 el("metextras").addEventListener("change", () => {
   state.live = null; // Zusatzvariablen erfordern einen frischen Daten-Cache
   persist();
@@ -583,6 +600,8 @@ function setStart(lat, lon) {
   persist();
   fetchStartElevation();
 }
+
+initGeocode({ map, setStart, debounce, el });
 
 // Modell-Geländehöhe am Startort — bewusst aus der Forecast-Antwort des
 // gewählten Modells (Modellorographie), damit die Anzeige zu dem passt,
@@ -764,6 +783,187 @@ function updateRunButton() {
 // --- Berechnung -------------------------------------------------------------
 el("run").addEventListener("click", runTrajectories);
 
+/** Convert Trajectories-API GeoJSON back into the app's run objects. */
+function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms }) {
+  const lines = (gj.features || []).filter(
+    (f) => f.geometry?.type === "LineString" && f.properties?.kind === "trajectory",
+  );
+  const markers = (gj.features || []).filter(
+    (f) => f.geometry?.type === "Point" && f.properties?.kind === "marker",
+  );
+  const runs = [];
+  for (const f of lines) {
+    const p = f.properties || {};
+    const times = p.times || [];
+    const coords = f.geometry.coordinates || [];
+    const points = [];
+    for (let i = 0; i < coords.length; i++) {
+      const c = coords[i];
+      const tMs = times[i]
+        ? Date.parse(times[i])
+        : t0Ms + (direction > 0 ? 1 : -1) * i * 60000;
+      points.push({
+        lat: c[1],
+        lon: c[0],
+        z: c.length > 2 ? c[2] : null,
+        tMs,
+      });
+    }
+    if (points.length < 2) continue;
+    const heightM = +p.start_height_m;
+    const method = p.vertical_motion || "height";
+    const rawLabel = typeof p.label === "string" ? p.label : "";
+    const label = rawLabel.slice(0, 120).replace(/[<>&"]/g, "")
+      || `${fmtHeight(heightM)} ${mode.toUpperCase()}`;
+    const style = METHODS.find((m) => m.key === method);
+    const cssColor = /^#[0-9a-f]{3,8}$/i.test(p.stroke || p.color || "")
+      ? (p.stroke || p.color)
+      : null;
+    const color = cssColor || style?.color || colorFor(heightM);
+    const dash = style?.dash || null;
+    const lineMarkers = markers
+      .filter((m) => (m.properties?.label || "") === label)
+      .map((m) => {
+        const mp = m.properties || {};
+        const mc = m.geometry.coordinates || [];
+        const spdMs = ((mp.wind_speed_kmh || 0) / 3.6);
+        const dirRad = ((mp.wind_direction_deg || 0) * Math.PI) / 180;
+        // Same convention as drawTrajectory: dir = atan2(-u, -v) "from".
+        const u = -spdMs * Math.sin(dirRad);
+        const v = -spdMs * Math.cos(dirRad);
+        const met = (mp.temperature_c != null || mp.pressure_hpa != null)
+          ? {
+            t: mp.temperature_c,
+            td: mp.dewpoint_c,
+            rh: mp.relative_humidity_pct,
+            p: mp.pressure_hpa,
+          }
+          : null;
+        return {
+          lat: mc[1],
+          lon: mc[0],
+          z: mc.length > 2 ? mc[2] : null,
+          tMs: mp.time ? Date.parse(mp.time) : points[0].tMs,
+          u, v, met,
+        };
+      });
+    const rawTerrain = Array.isArray(p.terrain_m) ? p.terrain_m : null;
+    const terrain = points.map((_, i) => {
+      const g = rawTerrain ? rawTerrain[i] : null;
+      return Number.isFinite(g) ? +g : null;
+    });
+    runs.push({
+      r: {
+        points,
+        markers: lineMarkers,
+        status: p.status || "ok",
+        reason: p.stop_reason || null,
+      },
+      color,
+      label,
+      heightM: Number.isFinite(heightM) ? heightM : 0,
+      method,
+      dash,
+      terrain,
+    });
+  }
+  return runs.sort((a, b) => a.heightM - b.heightM);
+}
+
+async function runTrajectoriesViaApi({
+  modelKey, lat, lon, methods, compareMode,
+  activeHeights, markerIntervalSec, mode, direction, duration, t0Ms,
+}) {
+  state.running = true;
+  updateRunButton();
+  state.layers.clearLayers();
+  state.pinLayers.clearLayers();
+  state.pinRuns.clear();
+  state.pinKey = "";
+  el("results").innerHTML = "";
+  el("download").disabled = true;
+  el("xsecbtn").disabled = true;
+  el("view3dbtn").disabled = true;
+  el("xsec").hidden = true;
+  state.lastRuns = null;
+  state.xsec = null;
+  state.live = null;
+  setStatus("API: lade Trajektorien …");
+
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    models: modelKey,
+    time: new Date(t0Ms).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    timeformat: "iso8601",
+    forecast_hours: String(duration),
+    vertical_motion: methods.join(","),
+    direction: direction > 0 ? "forward" : "backward",
+    marker_interval: String(markerIntervalSec / 60),
+    met_extras: String(el("metextras").checked),
+    format: "geojson",
+    backend: "auto",
+  });
+  if (mode === "amsl") params.set("height_amsl", activeHeights.join(","));
+  else params.set("height_agl", activeHeights.join(","));
+
+  const t0 = performance.now();
+  try {
+    const url = `${TRAJECTORY_API}/v1/trajectory?${params}`;
+    if (DEBUG) console.debug("[traj] API", url);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    const body = await resp.text();
+    let data;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      throw new Error(`Serverfehler ${resp.status}: ${body.slice(0, 180)}`);
+    }
+    const ms = performance.now() - t0;
+    if (!resp.ok || data?.error) {
+      throw new Error(data?.reason || `HTTP ${resp.status}`);
+    }
+    const runs = runsFromApiGeoJSON(data, {
+      mode, modelKey, direction, duration, t0Ms,
+    });
+    if (!runs.length) throw new Error("API lieferte keine Trajektorien");
+
+    for (const run of runs) drawCasing(run.r, state.layers);
+    for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash, state.layers);
+    for (const run of runs) reportResult(run.r, run.heightM, run.color, run.label);
+
+    state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
+    el("download").disabled = false;
+    // Querschnitt: terrain_m from API (model orography along each path).
+    state.xsec = {
+      runs: runs.map((run) => ({
+        ...run,
+        terrain: run.terrain || run.r.points.map(() => null),
+      })),
+      t0Ms,
+      direction,
+      overlay: compareMode,
+    };
+    const g0 = runs[0]?.terrain?.find((g) => Number.isFinite(g));
+    if (Number.isFinite(g0)) state.startElevation = g0;
+    el("xsecbtn").disabled = runs.length === 0;
+    el("view3dbtn").disabled = runs.length === 0;
+    setStatus(`API: ${runs.length} Trajektorie(n) · ${fmtMs(ms)}`);
+  } catch (err) {
+    const ms = performance.now() - t0;
+    setStatus(`API-Fehler: ${err.message} · ${fmtMs(ms)}`, true);
+  } finally {
+    state.running = false;
+    updateRunButton();
+  }
+}
+
+/** Format wall time for status line (API fetch or browser compute). */
+function fmtMs(ms) {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
 async function runTrajectories() {
   const modelKey = el("model").value;
   const model = MODELS[modelKey];
@@ -805,6 +1005,14 @@ async function runTrajectories() {
     return setStatus(`Startpunkt liegt außerhalb des ${model.label}-Gebiets.`, true);
   }
 
+  // Optional: Trajectories-HTTP-API statt Browser-Windfeld/Integrator.
+  if (el("useapi").checked) {
+    return runTrajectoriesViaApi({
+      modelKey, model, lat, lon, methods, compareMode,
+      activeHeights, markerIntervalSec, mode, direction, duration, t0Ms,
+    });
+  }
+
   // Signatur der Nicht-Höhen-Parameter (zugleich der Windfeld-Cache-Schlüssel:
   // Modell, Vertikaloption, Zeitfenster, Richtung, Startregion). Bleibt sie
   // gleich, hat sich nur die aktive Höhe bewegt → Scrub-Lauf: nur die aktive
@@ -839,6 +1047,7 @@ async function runTrajectories() {
   state.lastRuns = null;
   state.xsec = null;
   setStatus("Berechne …");
+  const t0 = performance.now();
 
   try {
     // Im Live-Modus das Windfeld über Läufe hinweg behalten, solange die
@@ -969,9 +1178,14 @@ async function runTrajectories() {
     // Offene 3D-Ansicht läuft mit (Live-Modus, Neuberechnung).
     el("view3dbtn").disabled = runs.length === 0;
     if (view3dMod && !el("view3d").hidden && runs.length) view3dMod.update(view3dData());
-    setStatus("");
+    // Scrub-Läufe sind sehr kurz und häufig — Zeit nur bei Full-Runs zeigen.
+    if (!scrub) {
+      setStatus(`${runs.length} Trajektorie(n) · ${fmtMs(performance.now() - t0)}`);
+    } else {
+      setStatus("");
+    }
   } catch (err) {
-    setStatus(`Fehler: ${err.message}`, true);
+    setStatus(`Fehler: ${err.message} · ${fmtMs(performance.now() - t0)}`, true);
   } finally {
     state.running = false;
     updateRunButton();
@@ -1049,9 +1263,15 @@ function reportResult(r, heightM, color, label) {
   const note = r.status === "stopped"
     ? `gestoppt ${fmtTime(end.tMs)}: ${r.reason}`
     : `bis ${fmtTime(end.tMs)}`;
-  line.innerHTML =
-    `<span class="chip" style="background:${color}"></span>` +
-    `${label} <span class="note">${note}</span>`;
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  if (/^#[0-9a-f]{3,8}$/i.test(color || "")) chip.style.background = color;
+  line.appendChild(chip);
+  line.appendChild(document.createTextNode(`${label} `));
+  const noteEl = document.createElement("span");
+  noteEl.className = "note";
+  noteEl.textContent = note;
+  line.appendChild(noteEl);
   el("results").appendChild(line);
 }
 

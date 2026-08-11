@@ -77,7 +77,7 @@ export class WindField {
       p: list.some((v) => v === "pressure" || v === "theta"),
       t: list.includes("theta"),
       w: list.includes("z3d"),
-      met: metExtras, // T, Td (aus q), RH an den Rechenpunkten mitführen
+      met: metExtras, // T, Td/RH (aus q+p+T) an den Rechenpunkten mitführen
     };
     if (this.needs.w && !this.wVarPrefix) {
       throw new Error("Server liefert (noch) keine Modell-Vertikalgeschwindigkeit");
@@ -119,7 +119,8 @@ export class WindField {
       vars.push(`wind_u_component_level${l}`, `wind_v_component_level${l}`, `height_agl_level${l}`);
       if (this.needs.p) vars.push(`pressure_level${l}`);
       if (this.needs.t) vars.push(`temperature_level${l}`);
-      if (this.needs.met) vars.push(`specific_humidity_level${l}`, `relative_humidity_level${l}`);
+      // RH is derived from q+p+T (Magnus); no model relative_humidity fetch.
+      if (this.needs.met) vars.push(`specific_humidity_level${l}`);
       if (this.needs.w) vars.push(`${this.wVarPrefix}_level${l}`);
     }
     return vars;
@@ -308,7 +309,8 @@ export class WindField {
     let met;
     if (this.needs.met) {
       const tC = TK - 273.15;
-      met = { t: tC, td: dewpointC(Q, P, tC, RH), rh: RH, p: P };
+      const rh = relativeHumidityPct(Q, P, tC) ?? (Number.isFinite(RH) ? RH : null);
+      met = { t: tC, td: dewpointC(Q, P, tC, RH), rh, p: P };
     }
     if (dbg) {
       const tgt = `${target.type}=${Math.round(target.value)}${target.mode ? ` ${target.mode}` : ""}`;
@@ -502,6 +504,17 @@ function dewpointC(qKgKg, pHpa, tC, rhPct) {
   if (!ePa || ePa <= 0) return null;
   const ln = Math.log(ePa / 611.2);
   return (243.12 * ln) / (17.62 - ln);
+}
+
+/** Relative Feuchte (%) über Wasser via Magnus aus q, p und T. */
+function relativeHumidityPct(qKgKg, pHpa, tC) {
+  if (!(Number.isFinite(qKgKg) && qKgKg >= 0 && Number.isFinite(pHpa) && pHpa > 0 && Number.isFinite(tC))) {
+    return null;
+  }
+  const ePa = (qKgKg * pHpa * 100) / (0.622 + 0.378 * qKgKg);
+  const esPa = 611.2 * Math.exp((17.62 * tC) / (243.12 + tC));
+  if (!(ePa > 0) || !(esPa > 0)) return null;
+  return Math.min(100, Math.max(0, (100 * ePa) / esPa));
 }
 
 function levelValueAtT(arr, { ti, tw }) {
