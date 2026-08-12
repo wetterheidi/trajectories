@@ -134,6 +134,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
   map.on("contextmenu", async (e) => {
     L.DomEvent.preventDefault(e.originalEvent);
     const { lat, lng: lon } = e.latlng;
+    setStart(lat, lon);
     const popup = L.popup({ maxWidth: 280 }).setLatLng(e.latlng)
       .setContent(textEl("div", "Suche Ort …"))
       .openOn(map);
