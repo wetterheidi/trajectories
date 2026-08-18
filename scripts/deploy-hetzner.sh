@@ -12,7 +12,7 @@
 # https://verwaltung.wetterheidi.de/admin/tools angelegt und den Nutzern
 # das Häkchen gegeben werden — bis dahin liefert der Pförtner 403.
 #
-# Aufruf: bun run deploy   (oder direkt: bash scripts/deploy-hetzner.sh)
+# Aufruf: npm run deploy   (oder direkt: bash scripts/deploy-hetzner.sh)
 set -euo pipefail
 
 SERVER="root@178.104.206.136"

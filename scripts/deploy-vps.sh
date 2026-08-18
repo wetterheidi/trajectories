@@ -3,7 +3,7 @@
 # Deploy the Vite webapp to https://vps.mah.priv.at/trajectories/
 # (Caddy Basic Auth — see deploy/Caddyfile.vps-trajectories.snippet).
 #
-# Aufruf: bun run deploy:vps   (oder: bash scripts/deploy-vps.sh)
+# Aufruf: npm run deploy:vps   (oder: bash scripts/deploy-vps.sh)
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +16,7 @@ BASE="/trajectories/"
 
 echo "==> Baue Web-Build (base=${BASE}) ..."
 cd "$PROJECT_DIR"
-bunx vite build --base="$BASE"
+npx vite build --base="$BASE"
 
 # vite-plugin-cesium copies into dist/<base>/cesium; flatten for rsync of dist/.
 if [[ -d dist/trajectories/cesium ]]; then

@@ -10,7 +10,7 @@ python3 -m venv python/.venv
 source python/.venv/bin/activate
 pip install -e "python/[dev]"
 playwright install chromium   # for Windy / web↔Python visual tests
-bun install                   # Vite — required for web↔Python compare
+npm install                   # Vite — required for web↔Python compare
 ```
 
 For local `.om` reads and/or the HTTP API (optional):

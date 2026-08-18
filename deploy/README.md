@@ -6,8 +6,8 @@ Static Vite build behind Caddy Basic Auth (username **`trajectories`**).
 
 ```bash
 cd /home/mah/src/trajectories
-bun install
-bun run deploy:vps   # builds with base=/trajectories/ → /var/www/vps/trajectories/
+npm install
+npm run deploy:vps   # builds with base=/trajectories/ → /var/www/vps/trajectories/
 ```
 
 Caddy — merge the directives from [`Caddyfile.vps-trajectories.snippet`](Caddyfile.vps-trajectories.snippet) into the existing `vps.mah.priv.at` site block. Set the password hash once:

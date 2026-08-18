@@ -3,13 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "bun test/integrator.test.mjs",
-    "test:live": "bun test/live-smoke.mjs",
+    "test": "node test/integrator.test.mjs",
+    "test:live": "node test/live-smoke.mjs",
     "deploy": "bash scripts/deploy-hetzner.sh",
     "deploy:vps": "bash scripts/deploy-vps.sh"
   },

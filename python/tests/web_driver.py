@@ -51,7 +51,7 @@ def _vite_bin() -> Path:
     if local.is_file():
         return local
     raise RuntimeError(
-        f"Vite not found at {local}. Run `bun install` in the repo root."
+        f"Vite not found at {local}. Run `npm install` in the repo root."
     )
 
 

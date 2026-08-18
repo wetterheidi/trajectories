@@ -70,7 +70,7 @@ python3 -m venv python/.venv
 source python/.venv/bin/activate
 pip install -e "python/[dev]"   # omfiles + FastAPI/uvicorn + test deps
 playwright install chromium   # for opt-in visual tests
-bun install                   # Vite — web↔Python compare only
+npm install                   # Vite — web↔Python compare only
 
 # Standalone library example (AGL ≤3 km, 10 min markers, met extras):
 python python/examples/basic_trajectory.py

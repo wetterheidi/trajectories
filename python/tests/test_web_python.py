@@ -3,7 +3,7 @@ Near-exact equivalence: web app GeoJSON download vs Python compute_trajectories.
 
 Opt-in: RUN_WEB_PY_TESTS=1 pytest python/tests/test_web_python.py -m web_py
 
-Requires network, Chromium (playwright install chromium), bun deps (vite), and
+Requires network, Chromium (playwright install chromium), npm deps (vite), and
 Open-Meteo API reachability.
 """
 
