@@ -121,6 +121,49 @@ const heightColors = new Map();
 let activeHeight = null;
 const bar = el("heightbar");
 
+// Lazy geladenes GRAMET-Modul (s. ganz unten). Hier oben deklariert, weil
+// `updateHeightContext()` schon während des Modul-Aufbaus läuft und den Wert
+// abfragt — eine Deklaration erst am Verwendungsort läge dann noch in der
+// temporalen Todeszone.
+let grametMod = null;
+
+// --- „Veraltet“: Anzeigen passen nicht mehr zu den Einstellungen ------------
+// Karte, Ergebnisliste, Querschnitt, 3D-Ansicht und GRAMET zeigen immer den
+// ZULETZT GERECHNETEN Lauf — eine Parameteränderung allein rechnet nicht neu.
+// Statt eine dieser Anzeigen wegzunehmen (das erklärt nichts und nähme dem
+// Nutzer den Kontext, während die übrigen genauso alt weiterlaufen), wird der
+// Zustand sichtbar gemacht: Berechnen-Knopf als Handlungsaufforderung, offene
+// Overlays mit Hinweis. Nichts verschwindet, aber nichts täuscht Aktualität
+// vor.
+let stale = false;
+
+function applyStale() {
+  el("run").classList.toggle("stale", stale);
+  el("run").textContent = stale ? "Trajektorien neu berechnen" : "Trajektorien berechnen";
+  el("xsec-stale").hidden = !stale;
+  el("v3d-stale").hidden = !stale;
+  grametMod?.setStale(stale);
+}
+
+function markStale() {
+  // Vor dem ersten Lauf gibt es nichts, was veralten könnte.
+  if (stale || !state.lastRuns) return;
+  stale = true;
+  applyStale();
+}
+
+/** Für Änderungen am Höhenbalken: im Live-Modus rechnet `maybeLive()` sie
+ *  ohnehin sofort nach, der Hinweis würde nur kurz aufblitzen. */
+function markStaleUnlessLive() {
+  if (!el("livemode").checked) markStale();
+}
+
+function clearStale() {
+  if (!stale) return;
+  stale = false;
+  applyStale();
+}
+
 // Oberes Ende der Höhenbalken-Skala, in den Einstellungen wählbar (Default
 // 6 km). HEIGHT_MAX bleibt die absolute Obergrenze für diese Auswahl.
 const BAR_MAX_OPTIONS = [3000, 4000, 5000, 6000, 8000, 10000];
@@ -138,11 +181,15 @@ function addHeight(m) {
   activeHeight = m;
   renderBar();
   persist();
+  // Nur der NEUE Punkt macht die Ergebnisse veraltet — der Zweig oben
+  // (Höhe war schon am Balken) wechselt bloß die aktive Auswahl.
+  markStaleUnlessLive();
   return true;
 }
 
 function removeHeight(m) {
   heightColors.delete(m);
+  markStaleUnlessLive();
   if (activeHeight === m) {
     const keys = [...heightColors.keys()].sort((a, b) => a - b);
     activeHeight = keys.length ? keys[0] : null;
@@ -298,6 +345,7 @@ function moveHeight(fromM, toM) {
   heightColors.delete(fromM);
   heightColors.set(toM, color);
   if (activeHeight === fromM) activeHeight = toM;
+  markStaleUnlessLive();
   return true;
 }
 
@@ -422,6 +470,7 @@ for (const m of METHODS) {
     state.live = null; // andere Methoden brauchen ggf. andere Variablen
     renderBar(); // Ausgrauen/Aktiv-Hinweis hängen am Vergleichsmodus
     persist();
+    markStale();
   });
   el("methodlist").appendChild(label);
 }
@@ -505,6 +554,7 @@ updateDirectionLabels();
 for (const id of ["markerint", "direction", "duration"]) {
   el(id).addEventListener("change", persist);
 }
+el("markerint").addEventListener("change", markStale);
 
 // Modell-Vertikalgeschwindigkeit: je Modell prüfen, ob der Server die
 // Variable anbietet, und die 3D-Option entsprechend schalten. Läuft beim
@@ -541,6 +591,8 @@ function onUnitsChange() {
   renderBar();
   updateHeightContext();
   if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
+  // Die Komponentenbibliothek führt ihren eigenen Einheiten-Zustand.
+  grametMod?.syncUnits({ height: unitState.height, wind: unitState.wind });
   persist();
 }
 el("unitheight").addEventListener("change", onUnitsChange);
@@ -571,10 +623,12 @@ el("useapi").addEventListener("change", () => {
   }
   persist();
   updateRunButton();
+  markStale();
 });
 el("metextras").addEventListener("change", () => {
   state.live = null; // Zusatzvariablen erfordern einen frischen Daten-Cache
   persist();
+  markStale();
 });
 
 updateHeightContext();
@@ -599,6 +653,7 @@ function setStart(lat, lon) {
   updateRunButton();
   persist();
   fetchStartElevation();
+  markStale();
 }
 
 initGeocode({ map, setStart, debounce, el });
@@ -653,6 +708,10 @@ function updateHeightContext() {
   } else {
     hint.textContent = `Aktiv: ${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund ${ort}`;
   }
+  // Sammelstelle aller Änderungen der aktiven Höhe — ein offenes GRAMET zeigt
+  // damit immer den Pfad der gerade aktiven Höhe. Schon geholte Gitter liegen
+  // im Modul-Cache, ein Hin-und-Her kostet also kein Netzwerk.
+  refreshGramet();
 }
 
 // --- Zeitschieber aus meta.json des gewählten Modells -----------------------
@@ -725,19 +784,25 @@ function updateReachHint() {
   }
 }
 
-el("timeslider").addEventListener("input", () => { updateTimeLabel(); updateReachHint(); });
+el("timeslider").addEventListener("input", () => {
+  updateTimeLabel();
+  updateReachHint();
+  markStale();
+});
 el("timeslider").addEventListener("change", persist);
-el("duration").addEventListener("input", updateReachHint);
+el("duration").addEventListener("input", () => { updateReachHint(); markStale(); });
 el("direction").addEventListener("change", () => {
   updateDirectionLabels();
   updateHeightContext(); // „am Startort"/„am Zielort" hängt an der Richtung
   updateReachHint();
+  markStale();
 });
 el("model").addEventListener("change", () => {
   persist();
   loadMeta();
   updateWDetection();
   fetchStartElevation(); // Modellorographie unterscheidet sich je Modell
+  markStale();
 });
 // Beim Wechsel des Höhenbezugs die vorhandenen Höhen physisch beibehalten:
 // AGL→AMSL addiert die Geländehöhe, AMSL→AGL zieht sie ab (gerundet auf die
@@ -748,6 +813,7 @@ el("refmode").addEventListener("change", () => {
   renderBar();
   persist();
   maybeLive();
+  markStaleUnlessLive();
 });
 
 function convertHeightsForRefmode(toMode) {
@@ -784,7 +850,7 @@ function updateRunButton() {
 el("run").addEventListener("click", runTrajectories);
 
 /** Convert Trajectories-API GeoJSON back into the app's run objects. */
-function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms }) {
+function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms, compareMode }) {
   const lines = (gj.features || []).filter(
     (f) => f.geometry?.type === "LineString" && f.properties?.kind === "trajectory",
   );
@@ -816,10 +882,21 @@ function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms }) {
     const label = rawLabel.slice(0, 120).replace(/[<>&"]/g, "")
       || `${fmtHeight(heightM)} ${mode.toUpperCase()}`;
     const style = METHODS.find((m) => m.key === method);
+    // Die Farbe kommt aus dem Höhenbalken — er ist die Legende, die der Nutzer
+    // vor sich hat. Der Server legt in `stroke`/`color` zwar eine eigene
+    // Palette bei, kann die Zuordnung am Balken aber nicht kennen: er verteilt
+    // sie nach SORTIERTER Höhe (python/trajectories/compute.py), während eine
+    // Höhe hier ihre Farbe behält, wenn man sie verschiebt. Zieht man den
+    // untersten Punkt nach oben, rutscht die Serverfarbe deshalb auf den
+    // Nachbarn — Karte, Ergebnisliste und GRAMET widersprachen dann dem
+    // Balken. Serverfarbe nur noch als Rückfall für Höhen, die der Balken
+    // nicht kennt. Gleiche Regel wie im Browser-Pfad (s. `computeOne`).
     const cssColor = /^#[0-9a-f]{3,8}$/i.test(p.stroke || p.color || "")
       ? (p.stroke || p.color)
       : null;
-    const color = cssColor || style?.color || colorFor(heightM);
+    const color = compareMode
+      ? (style?.color || cssColor || colorFor(heightM))
+      : (heightColors.get(heightM) || cssColor || colorFor(heightM));
     const dash = style?.dash || null;
     const lineMarkers = markers
       .filter((m) => (m.properties?.label || "") === label)
@@ -884,6 +961,7 @@ async function runTrajectoriesViaApi({
   el("download").disabled = true;
   el("xsecbtn").disabled = true;
   el("view3dbtn").disabled = true;
+  el("grametbtn").disabled = true;
   el("xsec").hidden = true;
   state.lastRuns = null;
   state.xsec = null;
@@ -924,7 +1002,7 @@ async function runTrajectoriesViaApi({
       throw new Error(data?.reason || `HTTP ${resp.status}`);
     }
     const runs = runsFromApiGeoJSON(data, {
-      mode, modelKey, direction, duration, t0Ms,
+      mode, modelKey, direction, duration, t0Ms, compareMode,
     });
     if (!runs.length) throw new Error("API lieferte keine Trajektorien");
 
@@ -948,6 +1026,9 @@ async function runTrajectoriesViaApi({
     if (Number.isFinite(g0)) state.startElevation = g0;
     el("xsecbtn").disabled = runs.length === 0;
     el("view3dbtn").disabled = runs.length === 0;
+    el("grametbtn").disabled = runs.length === 0;
+    refreshGramet();
+    clearStale();
     setStatus(`API: ${runs.length} Trajektorie(n) · ${fmtMs(ms)}`);
   } catch (err) {
     const ms = performance.now() - t0;
@@ -1042,6 +1123,7 @@ async function runTrajectories() {
   el("download").disabled = true;
   el("xsecbtn").disabled = true;
   el("view3dbtn").disabled = true;
+  el("grametbtn").disabled = true;
   const xsecWasOpen = !el("xsec").hidden;
   el("xsec").hidden = true;
   state.lastRuns = null;
@@ -1178,6 +1260,11 @@ async function runTrajectories() {
     // Offene 3D-Ansicht läuft mit (Live-Modus, Neuberechnung).
     el("view3dbtn").disabled = runs.length === 0;
     if (view3dMod && !el("view3d").hidden && runs.length) view3dMod.update(view3dData());
+    // Offenes GRAMET ebenso — die neuen Läufe sind neue Objekte, der
+    // Gitter-Cache im Modul greift also nur für unveränderte Pins.
+    el("grametbtn").disabled = runs.length === 0;
+    refreshGramet();
+    clearStale();
     // Scrub-Läufe sind sehr kurz und häufig — Zeit nur bei Full-Runs zeigen.
     if (!scrub) {
       setStatus(`${runs.length} Trajektorie(n) · ${fmtMs(performance.now() - t0)}`);
@@ -1493,6 +1580,55 @@ el("view3dbtn").addEventListener("click", async () => {
   }
 });
 el("v3d-close").addEventListener("click", hide3D);
+
+// --- GRAMET-Querschnitt (Komponentenbibliothek, lazy geladen) ---------------
+// Zeigt das Wetter entlang EINES Pfades — der Trajektorie der aktiven Höhe
+// (dieselbe Auswahl, die auch der Live-Scrub bewegt). Anders als der
+// Querschnitt oben, der alle Läufe nebeneinander zeigt.
+// (`grametMod` ist oben bei den Höhen-Zuständen deklariert, s. dort.)
+
+function grametData() {
+  const { runs, modelKey, t0Ms, duration, direction } = state.lastRuns;
+  // Im Methodenvergleich teilen sich mehrere Läufe eine Höhe — dann der
+  // erste; `run.label` nennt die Methode, das Panel zeigt sie im Untertitel.
+  const run = runs.find((x) => x.heightM === activeHeight) ?? runs[0];
+  return { run, modelKey, t0Ms, duration, direction };
+}
+
+function hideGramet() {
+  el("gramet").hidden = true;
+  el("grametbtn").textContent = "GRAMET (aktive Höhe)";
+}
+
+/** Offenes GRAMET nachziehen (Höhenwechsel, Neuberechnung). */
+function refreshGramet() {
+  if (grametMod?.isOpen() && state.lastRuns?.runs?.length) grametMod.update(grametData());
+}
+
+el("grametbtn").addEventListener("click", async () => {
+  if (!el("gramet").hidden) return hideGramet();
+  if (!state.lastRuns?.runs?.length) return;
+  el("grametbtn").disabled = true;
+  setStatus("Lade GRAMET …");
+  try {
+    grametMod ??= await import("./gramet.js");
+    grametMod.syncUnits({ height: unitState.height, wind: unitState.wind });
+    // Wird das Panel erst NACH einer Parameteränderung geöffnet, hat es den
+    // Veraltet-Hinweis noch nicht gesehen — hier nachziehen, bevor der
+    // (langsamere) Datenabruf läuft.
+    grametMod.setStale(stale);
+    await grametMod.show(grametData());
+    el("grametbtn").textContent = "GRAMET schließen";
+    setStatus("");
+  } catch (err) {
+    hideGramet();
+    setStatus(`GRAMET: ${err.message}`, true);
+  } finally {
+    el("grametbtn").disabled = false;
+  }
+});
+// Die Web Component meldet ihren eigenen ×-Knopf nach außen (composed).
+el("gramet").addEventListener("close", hideGramet);
 
 // --- Export (GeoJSON / GPX / KML) -------------------------------------------
 const DOWNLOAD_FORMATS = {

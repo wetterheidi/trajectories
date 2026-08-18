@@ -28,7 +28,11 @@ Startpunkt per Kartenklick setzen (Marker ist verschiebbar), Modell, Startzeit
 sind frei wählbar (Schieber bis 6000 m, Zahlenfeld bis 10 000 m, 10-m-Raster,
 max. 8 gleichzeitig): Höhe einstellen und mit „+" (oder Enter) zur Liste
 hinzufügen, „ד entfernt sie wieder. Jede Höhe behält ihre Farbe, solange sie
-in der Liste ist. Die Höhenreferenz gilt für die gesamte Trajektorie: „AGL"
+in der Liste ist — auch beim Verschieben: die Farbe gehört der Trajektorie,
+nicht der Position am Balken. Der Höhenbalken ist damit die Legende, an der
+sich alles andere ausrichtet (Kartenlinien, Ergebnisliste, Querschnitt,
+3D-Ansicht, GRAMET und die Exporte). Die Höhenreferenz gilt für die gesamte
+Trajektorie: „AGL"
 rechnet geländefolgend auf konstanter Höhe über Grund, „AMSL" auf konstanter
 absoluter Höhe. Der Markenabstand (10 min – 6 h) steuert die Punktmarkierungen,
 deren Tooltip Zeit, Höhe und Wind zeigt.
@@ -60,6 +64,47 @@ Trajektorien Höhen über NN führen, Cesium aber über dem WGS84-Ellipsoid
 rechnet, wird der Versatz am Startpunkt kalibriert (Cesium-Geländehöhe minus
 Modellorographie) und im Kopf der Ansicht angezeigt. Eine offene 3D-Ansicht
 läuft bei Neuberechnung und im Live-Modus mit.
+
+„GRAMET" öffnet den Wetterquerschnitt entlang **einer** Trajektorie — der
+aktiven Höhe, also derselben Auswahl, die auch der Live-Scrub bewegt. Anders
+als der Querschnitt oben (Höhenprofile aller Läufe nebeneinander) zeigt er das
+Wetter *entlang des Flugpfades*: Wolken, Niederschlag, Vereisung/Turbulenz,
+Isothermen/Isotachen über der Modell-Orographie und dem echten Gelände, dazu
+die Bodenzeilen (Wind, Böen, Sicht, ww, T/Td, Luftdruck). Die x-Achse zählt
+verstrichene Flugzeit, jede Spalte wird an *ihrem* Ort zu *ihrer* Zeit aus dem
+Modell gezogen; die Trajektorie selbst liegt als Linie in ihrer korrekten
+Höhe (m NN) darin. Bei Rückwärtsläufen steht links die Herkunft und rechts
+die gewählte Startzeit (der Kopf nennt beide Zeitpunkte). Verlässt der Pfad
+das Modellgebiet, endet der Querschnitt dort mit sichtbarem Grund.
+
+Die Höhenachse hat zwei Bereiche. „Gesamthöhe" reicht bis knapp über die
+Tropopause (höchster Tropopausenpunkt + 2,5 km, damit überschießende
+Cb-Gipfel noch ganz sichtbar sind) — nicht bis zum Modelldeckel bei ~20 km,
+darüber ist ohnehin nichts mehr zu sehen. „Um die Trajektorie" zoomt auf das
+Band zwischen tiefstem Geländepunkt und der höchsten Trajektorienhöhe. Anders
+als in droneforecast gibt es hier **keine eingestellte Flughöhe**: die Höhe
+ist das Ergebnis der Trajektorienrechnung, kommt also aus der Höhenleiste
+(AGL oder AMSL je nach Höhenreferenz) und wird als absolute Höhe (m NN)
+geplottet — deshalb auch keine Max-Flughöhen-Deckellinie.
+Ein geöffnetes GRAMET folgt einem Wechsel der aktiven Höhe; bereits geholte
+Gitter bleiben zwischengespeichert, ein Hin-und-Her kostet also keine neuen
+Abrufe.
+
+Alle Ergebnisanzeigen — Karte, Ergebnisliste, Querschnitt, 3D-Ansicht und
+GRAMET — zeigen immer den **zuletzt gerechneten** Lauf; eine Parameteränderung
+allein rechnet nicht neu. Damit das nicht unbemerkt bleibt, wird der Zustand
+sichtbar gemacht, sobald sich etwas Pfadbestimmendes ändert (Startpunkt,
+Modell, Startzeit, Dauer, Richtung, Höhenreferenz, Methoden, Starthöhen,
+Markenabstand, Zusatzparameter, API-Schalter): der Berechnen-Knopf wird zur
+Handlungsaufforderung („Trajektorien neu berechnen"), offene Overlays bekommen
+ein Hinweisband. Bewusst wird nichts geschlossen — das nähme den Kontext, ohne
+zu erklären, und die übrigen Anzeigen wären genauso alt. Ein reiner Wechsel
+der aktiven Höhe zählt nicht dazu: diese Trajektorie ist ja mitgerechnet. Im
+Live-Modus entfällt der Hinweis, weil dort ohnehin sofort neu gerechnet wird. Die Darstellung kommt als Web Component aus
+[droneforecast](../droneforecast) und wird per Vite-Alias (`@windkit/*`)
+eingebunden — beide Repos müssen dafür nebeneinander ausgecheckt sein, und
+GRAMET braucht (anders als der Rest der 2D-App) den Vite-Dev-Server bzw. einen
+Build.
 
 Die Berechnungsart wird über die **Methoden-Häkchen** gewählt (konstante
 Höhe, isobar, isentrop, Modell-w sobald verfügbar). Mehrere Höhen ×  eine
@@ -133,6 +178,7 @@ plus die Zeitmarken als Points mit Wind.
 | `src/config.js` | Server, Modellgitter/BBoxen, feste Höhen-Farbzuordnung |
 | `src/app.js` | Leaflet-UI |
 | `src/view3d.js` | 3D-Ansicht (CesiumJS lazy; Re:Earth / Ion / flat; Esri / OSM) |
+| `src/gramet.js` | GRAMET-Querschnitt entlang der aktiven Trajektorie (lazy; einzige Stelle mit `@windkit/*`-Importen) |
 | `test/` | Offline-Tests (Kreisschluss, Umkehrbarkeit) + Live-Smoke-Test |
 
 Levelzählung der API: N=1 oberstes Level, N=65 (D2) bzw. N=74 (EU) unterstes

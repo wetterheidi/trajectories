@@ -180,6 +180,28 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   cursor: pointer;
 }
 #run:disabled { background: #9c9b95; cursor: default; }
+/* „Veraltet“-Zustand: die Ergebnisanzeigen (Karte, Ergebnisliste, Querschnitt,
+   3D, GRAMET) zeigen noch den vorigen Lauf, weil sich seither eine
+   pfadbestimmende Einstellung geändert hat. Der Knopf wird dann zur
+   Handlungsaufforderung statt nur einer verfügbaren Aktion. */
+#run.stale {
+  background: #b06a00;
+  box-shadow: 0 0 0 3px rgba(176, 106, 0, 0.22);
+}
+#run.stale:disabled { background: #9c9b95; box-shadow: none; }
+
+/* Gleiche Aussage in den Köpfen der offenen Overlays. */
+.stale-flag {
+  font-weight: 600;
+  font-size: 11px;
+  color: #6b4a00;
+  background: #fdf1d6;
+  border: 1px solid #e0be6d;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.stale-flag[hidden] { display: none; }
 
 #downloadrow { display: flex; gap: 8px; margin-top: 8px; }
 #downloadrow select { flex: none; }
@@ -230,7 +252,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 .marker-tip { font-variant-numeric: tabular-nums; }
 
-#xsecbtn, #view3dbtn {
+#xsecbtn, #view3dbtn, #grametbtn {
   width: 100%;
   margin-top: 6px;
   padding: 6px;
@@ -241,7 +263,11 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   border-radius: 6px;
   cursor: pointer;
 }
-#xsecbtn:disabled, #view3dbtn:disabled { color: #9c9b95; border-color: #c9c8c2; cursor: default; }
+#xsecbtn:disabled, #view3dbtn:disabled, #grametbtn:disabled {
+  color: #9c9b95;
+  border-color: #c9c8c2;
+  cursor: default;
+}
 
 #xsec {
   position: absolute;
@@ -293,6 +319,21 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 .xsec-tip .chip { display: inline-block; vertical-align: middle; margin-right: 5px; }
+
+/* GRAMET: Overlay wie die 3D-Ansicht (links neben dem Bedienpanel), aber
+   darüber — beide können gleichzeitig offen sein. Der Panel-Innenraum kommt
+   komplett aus der Web Component (eigener Shadow-DOM-Style). */
+#gramet {
+  position: absolute;
+  inset: 10px 430px 10px 10px;
+  z-index: 1102;
+  background: #fcfcfb;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+#gramet[hidden] { display: none; }
+#gramet gramet-panel { display: flex; height: 100%; }
 
 /* 3D-Ansicht: Overlay links neben dem Bedienpanel (400px + 2×10px Rand). */
 #view3d {
@@ -396,7 +437,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   select, input[type="number"] { padding: 6px 8px; }
   .gpx-rm { font-size: 18px; padding: 2px 8px; }
   #run { padding: 12px; }
-  #download, #xsecbtn, #view3dbtn { padding: 10px; }
+  #download, #xsecbtn, #view3dbtn, #grametbtn { padding: 10px; }
   #heightbar { width: 76px; height: 240px; }
   #heightbar-labels { height: 240px; width: 140px; }
   .bar-marker { height: 26px; }
@@ -426,6 +467,13 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
     border-radius: 0;
     z-index: 1300;
   }
+  /* GRAMET ebenfalls bildschirmfüllend — der Chart braucht jeden Pixel. */
+  #gramet {
+    inset: 0;
+    border-radius: 0;
+    z-index: 1302;
+  }
+
   .v3d-head { gap: 8px; padding: 8px 10px; }
   #v3d-mousehint { display: none; }
   #v3d-cam button { width: 40px; height: 40px; font-size: 18px; }

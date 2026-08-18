@@ -96,6 +96,7 @@
     </div>
     <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
     <button id="view3dbtn" class="secondary" disabled>3D-Ansicht</button>
+    <button id="grametbtn" class="secondary" disabled>GRAMET (aktive Höhe)</button>
 
     <details id="settings">
       <summary>Einstellungen</summary>
@@ -165,6 +166,7 @@
       </label>
       <span class="hint" id="v3d-mousehint">Ziehen = verschieben · Strg+Ziehen = kippen/drehen · Scrollen = Zoom</span>
       <span id="v3d-note" class="hint"></span>
+      <span class="stale-flag" id="v3d-stale" hidden>Einstellungen geändert — zeigt den vorigen Lauf</span>
       <button id="v3d-close" title="Schließen">×</button>
     </div>
     <div id="v3d-globe">
@@ -184,10 +186,18 @@
     <div class="xsec-head">
       <span>Querschnitt entlang der Trajektorien</span>
       <span class="hint" id="xsec-hint">Höhe über NN · Gelände entlang des jeweiligen Pfades</span>
+      <span class="stale-flag" id="xsec-stale" hidden>Einstellungen geändert — zeigt den vorigen Lauf</span>
       <button id="xsec-close" title="Schließen">×</button>
     </div>
     <div id="xsec-body"></div>
   </div>
+
+  <!-- GRAMET-Wetterquerschnitt entlang der aktiven Trajektorie. Kopf, Ebenen-
+       schalter und Schließen-Knopf bringt die Web Component selbst mit (aus
+       der Bibliothek, s. src/gramet.js) -- dieses div ist nur die
+       Positionierungshülle. Sie wird erst beim ersten Klick auf #grametbtn
+       nachgeladen (lazy), damit die App ohne sie startet. -->
+  <div id="gramet" hidden><gramet-panel></gramet-panel></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
