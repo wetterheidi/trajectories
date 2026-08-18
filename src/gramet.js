@@ -1,22 +1,23 @@
 /**
  * GRAMET-Wetterquerschnitt entlang einer berechneten Trajektorie.
  *
- * Einzige Stelle der App, die die Komponentenbibliothek (`@windkit/…`, per
- * Vite-Alias auf das Nachbar-Repo droneforecast, s. vite.config.js) anfasst --
- * app.js kennt nur die Exporte hier unten. Deren öffentliche Oberfläche
- * besteht aus genau drei Einstiegspunkten: der Web Component
- * `<gramet-panel>`, `gramet/path.js` (Fetch + X-Achsen-Positionen) und
- * `units.js` (Einheiten-Singleton der Bibliothek). Alles andere dort ist
- * intern; wird die Bibliothek später ein eigenes Paket, ändert sich nur das
- * Alias-Ziel, nicht dieser Code.
+ * Einzige Stelle der App, die die Komponentenbibliothek `meteokit` anfasst --
+ * app.js kennt nur die Exporte hier unten. Genutzt werden genau drei
+ * Einstiegspunkte: die Web Component `<gramet-panel>`, `meteokit/gramet`
+ * (Fetch + X-Achsen-Positionen) und `meteokit/units` (Einheiten-Singleton der
+ * Bibliothek). Was die Bibliothek sonst noch enthält, ist intern -- verbindlich
+ * ist allein ihre `exports`-Map (s. meteokit/package.json).
+ *
+ * Eingebunden als `file:`-Abhängigkeit auf das Nachbar-Repo (s. package.json);
+ * beide müssen nebeneinander ausgecheckt sein, auch beim Deploy-Build.
  *
  * Das Modul wird von app.js erst beim ersten Klick nachgeladen (lazy) --
  * es zieht die gesamte GRAMET-Renderkette mit.
  */
 
-import "@windkit/components/gramet-panel/gramet-panel.js";
-import { fetchGridForPath, posOfPath } from "@windkit/gramet/path.js";
-import { setUnits as setKitUnits } from "@windkit/units.js";
+import "meteokit/components/gramet-panel";
+import { fetchGridForPath, posOfPath } from "meteokit/gramet";
+import { setUnits as setKitUnits } from "meteokit/units";
 
 const STORAGE_KEY = "trajectories.gramet.v1";
 

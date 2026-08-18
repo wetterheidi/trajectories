@@ -100,8 +100,8 @@ Handlungsaufforderung („Trajektorien neu berechnen"), offene Overlays bekommen
 ein Hinweisband. Bewusst wird nichts geschlossen — das nähme den Kontext, ohne
 zu erklären, und die übrigen Anzeigen wären genauso alt. Ein reiner Wechsel
 der aktiven Höhe zählt nicht dazu: diese Trajektorie ist ja mitgerechnet. Im
-Live-Modus entfällt der Hinweis, weil dort ohnehin sofort neu gerechnet wird. Die Darstellung kommt als Web Component aus
-[droneforecast](../droneforecast) und wird per Vite-Alias (`@windkit/*`)
+Live-Modus entfällt der Hinweis, weil dort ohnehin sofort neu gerechnet wird. Die Darstellung kommt als Web Component aus der Komponentenbibliothek
+[meteokit](../meteokit) und wird als `file:`-Abhängigkeit (`meteokit/*`)
 eingebunden — beide Repos müssen dafür nebeneinander ausgecheckt sein, und
 GRAMET braucht (anders als der Rest der 2D-App) den Vite-Dev-Server bzw. einen
 Build.
@@ -178,7 +178,7 @@ plus die Zeitmarken als Points mit Wind.
 | `src/config.js` | Server, Modellgitter/BBoxen, feste Höhen-Farbzuordnung |
 | `src/app.js` | Leaflet-UI |
 | `src/view3d.js` | 3D-Ansicht (CesiumJS lazy; Re:Earth / Ion / flat; Esri / OSM) |
-| `src/gramet.js` | GRAMET-Querschnitt entlang der aktiven Trajektorie (lazy; einzige Stelle mit `@windkit/*`-Importen) |
+| `src/gramet.js` | GRAMET-Querschnitt entlang der aktiven Trajektorie (lazy; einzige Stelle mit `meteokit/*`-Importen) |
 | `test/` | Offline-Tests (Kreisschluss, Umkehrbarkeit) + Live-Smoke-Test |
 
 Levelzählung der API: N=1 oberstes Level, N=65 (D2) bzw. N=74 (EU) unterstes
