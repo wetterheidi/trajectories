@@ -322,7 +322,8 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 /* GRAMET: Overlay wie die 3D-Ansicht (links neben dem Bedienpanel), aber
    darüber — beide können gleichzeitig offen sein. Der Panel-Innenraum kommt
-   komplett aus der Web Component (eigener Shadow-DOM-Style). */
+   komplett aus der Web Component (eigener Shadow-DOM-Style); von der App
+   stammen nur die Hülle und die Dockleiste darüber. */
 #gramet {
   position: absolute;
   inset: 10px 430px 10px 10px;
@@ -331,9 +332,67 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 #gramet[hidden] { display: none; }
-#gramet gramet-panel { display: flex; height: 100%; }
+/* Schlägt das `height: 100%` aus dem `:host` der Komponente (Dokumentregeln
+   gewinnen gegen `:host`) — sonst überliefe das Panel um die Leistenhöhe. */
+#gramet gramet-panel { display: flex; flex: 1; min-height: 0; height: auto; }
+
+/* Angedockt: unten angeschlagen, feste Höhe, Karte bleibt darüber sichtbar.
+   Der Chart wird dabei NICHT gestaucht — die Komponente bekommt eine
+   Mindesthöhe für die Hauptfläche (s. `minMainHeight` in src/gramet.js) und
+   scrollt lieber vertikal. */
+#gramet.docked {
+  top: auto;
+  height: var(--gm-dock-h, 45vh);
+  min-height: 200px;
+  max-height: calc(100% - 20px);
+}
+
+/* Synchronisierte Positionsanzeige: solange sie läuft, trägt das Etikett an
+   der Cursormarke Zeit und Höhe -- die Sticky-Tooltips der Linien und Marken
+   daneben wären dieselbe Aussage doppelt und verdecken sich gegenseitig. */
+#map.gm-sync .leaflet-tooltip:not(.gm-cursor-tip) { display: none; }
+.gm-cursor-tip { font-variant-numeric: tabular-nums; }
+
+#gramet-dockbar {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  background: #f3f2ee;
+  border-bottom: 1px solid #eceae4;
+}
+/* Ziehen nur im Dock — in der Vollansicht gibt es keine Höhe zu verstellen.
+   `touch-action: none`, damit der Zeigerzug auf Touch nicht als Scrollen
+   davonläuft. */
+#gramet.docked #gramet-dockbar { cursor: ns-resize; touch-action: none; }
+#gramet-dockmode {
+  border: none;
+  background: none;
+  font-size: 13px;
+  line-height: 1;
+  color: #52514e;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+#gramet-dockmode:hover { background: #e6e4de; color: #0b0b0b; }
+/* Mittig in der Leiste, unabhängig von der Knopfbreite. */
+.gm-grip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 4px;
+  border-radius: 2px;
+  background: #d0cec8;
+}
+#gramet:not(.docked) .gm-grip { display: none; }
 
 /* 3D-Ansicht: Overlay links neben dem Bedienpanel (400px + 2×10px Rand). */
 #view3d {
@@ -467,12 +526,21 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
     border-radius: 0;
     z-index: 1300;
   }
-  /* GRAMET ebenfalls bildschirmfüllend — der Chart braucht jeden Pixel. */
-  #gramet {
+  /* GRAMET ebenfalls bildschirmfüllend — der Chart braucht jeden Pixel.
+     Ein Dock neben der Karte hat auf dieser Breite keinen Platz, deshalb
+     bleibt die Hülle auch mit `.docked` bildschirmfüllend (die Klasse selbst
+     bleibt gesetzt, damit die Einstellung beim Wechsel an den Desktop
+     erhalten bleibt). */
+  #gramet, #gramet.docked {
     inset: 0;
+    height: auto;
+    max-height: none;
     border-radius: 0;
     z-index: 1302;
   }
+  #gramet.docked #gramet-dockbar { cursor: default; touch-action: auto; }
+  #gramet .gm-grip { display: none; }
+  #gramet-dockmode { display: none; }
 
   .v3d-head { gap: 8px; padding: 8px 10px; }
   #v3d-mousehint { display: none; }

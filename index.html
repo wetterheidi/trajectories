@@ -196,8 +196,17 @@
        schalter und Schließen-Knopf bringt die Web Component selbst mit (aus
        der Bibliothek, s. src/gramet.js) -- dieses div ist nur die
        Positionierungshülle. Sie wird erst beim ersten Klick auf #grametbtn
-       nachgeladen (lazy), damit die App ohne sie startet. -->
-  <div id="gramet" hidden><gramet-panel></gramet-panel></div>
+       nachgeladen (lazy), damit die App ohne sie startet.
+       Die Leiste darüber gehört der App, nicht der Komponente: sie schaltet
+       zwischen angedockt (Karte bleibt darüber sichtbar) und Vollansicht um
+       und dient im Dock als Ziehgriff für die Höhe. -->
+  <div id="gramet" hidden>
+    <div id="gramet-dockbar">
+      <button id="gramet-dockmode" type="button">⤢</button>
+      <span class="gm-grip" aria-hidden="true"></span>
+    </div>
+    <gramet-panel></gramet-panel>
+  </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>

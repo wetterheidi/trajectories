@@ -18,6 +18,7 @@
 import "meteokit/components/gramet-panel";
 import { fetchGridForPath, posOfPath } from "meteokit/gramet";
 import { setUnits as setKitUnits } from "meteokit/units";
+import * as cursorSync from "./cursorsync.js";
 
 const STORAGE_KEY = "trajectories.gramet.v1";
 
@@ -70,7 +71,143 @@ let prefsBound = false;
 function bindPrefs(panel) {
   if (prefsBound) return;
   prefsBound = true;
-  panel.addEventListener("settingschange", (e) => savePrefs(e.detail));
+  // Mergen statt ersetzen: in derselben Ablage liegen auch die Dock-Werte
+  // unten, die die Komponente nicht kennt.
+  panel.addEventListener("settingschange", (e) => savePrefs({ ...loadPrefs(), ...e.detail }));
+}
+
+// --- Positionssynchronisierung mit der Karte --------------------------------
+// Zwei Richtungen, ein Vermittler (s. cursorsync.js): das Panel meldet die
+// gehoverte Wegposition als `poshover`, und was die Karte meldet, kommt als
+// `cursor` zurück ins Panel.
+let syncBound = false;
+function bindSync(panel) {
+  if (syncBound) return;
+  syncBound = true;
+  panel.addEventListener("poshover", (e) => cursorSync.setCursor(e.detail.pos, "gramet"));
+  cursorSync.subscribe(({ s, source }) => {
+    // Beim Hovern im Chart selbst zeigt der Mauszeiger schon auf die Stelle --
+    // eine zweite Linie darunter wäre nur Unruhe, und das Nachscrollen würde
+    // den Chart unter dem Zeiger wegziehen. Trotzdem löschen: sonst bliebe die
+    // zuletzt von der Karte gesetzte Linie stehen, während man im Chart
+    // weiterfährt.
+    if (source === "gramet") return panel.setCursor(null);
+    panel.setCursor(s, { reveal: true });
+  });
+}
+
+// --- Dock: Karte und GRAMET gleichzeitig ------------------------------------
+// Zwei Anordnungen für dieselbe Hülle. "Angedockt" schlägt das Panel unten an,
+// darüber bleibt die Karte sichtbar und bedienbar -- Voraussetzung dafür, dass
+// Karte und Querschnitt sich gegenseitig eine Position zeigen können. Die
+// Vollansicht ist die bisherige Anordnung über der ganzen Kartenfläche.
+// Beides ist Sache der App: die Komponente weiß nichts von einer Karte.
+
+const DOCK_MIN_H = 220;
+const DOCK_DEFAULT_H = 420;
+// Mindesthöhe der GRAMET-Hauptfläche im Dock (`minMainHeight`, s. Bibliothek).
+// Rechnung: von der Dockhöhe gehen rund 300 px für Dockleiste, Komponentenkopf,
+// Bodenzeilen und Achsen ab. Bei 420 px Dockhöhe blieben also ~120 px
+// Wetterfläche -- unlesbar. Stattdessen behält die Hauptfläche 360 px und der
+// Panel-Body scrollt vertikal; wer mehr sehen will, zieht das Dock größer und
+// scrollt entsprechend weniger.
+const DOCK_MIN_MAIN_H = 360;
+
+let dockInit = false;
+
+function shellEl() {
+  return document.getElementById("gramet");
+}
+
+/** Aktuelle Anordnung auf die Hülle anwenden und die App informieren.
+ *  `reason`: "open" (Panel wird gezeigt), "mode" (Umschaltung), "resize"
+ *  (Ziehgriff losgelassen) -- die Karte zieht nur bei den ersten beiden nach,
+ *  sonst spränge der Ausschnitt beim Ziehen dauernd. */
+function applyDock({ docked, height }, reason) {
+  const shell = shellEl();
+  shell.classList.toggle("docked", docked);
+  shell.style.setProperty("--gm-dock-h", `${Math.round(height)}px`);
+  const btn = document.getElementById("gramet-dockmode");
+  btn.textContent = docked ? "⤢" : "⤡";
+  btn.title = docked ? "Vollansicht (Karte verdecken)" : "Andocken (Karte darüber zeigen)";
+  // Im Dock nicht stauchen, sondern scrollen (s. DOCK_MIN_MAIN_H) -- aber nur,
+  // wenn die Hülle tatsächlich als Streifen sitzt. Auf schmalen Geräten macht
+  // das CSS aus dem Dock wieder eine Vollansicht (kein Platz für beides
+  // nebeneinander); gemessen statt den Breakpoint hier nachzubauen.
+  const panel = panelEl();
+  const asStrip = shell.getBoundingClientRect().top > window.innerHeight / 3;
+  if (panel) panel.minMainHeight = asStrip ? DOCK_MIN_MAIN_H : null;
+  shell.dispatchEvent(new CustomEvent("grametlayout", {
+    bubbles: true,
+    detail: { docked, height, reason },
+  }));
+}
+
+function dockPrefs() {
+  const p = loadPrefs();
+  return {
+    // Voreinstellung ist das Dock: die parallele Ansicht ist der Grund, warum
+    // es sie gibt. Wer lieber die volle Fläche will, schaltet einmal um.
+    docked: p.docked !== false,
+    height: Number.isFinite(p.dockHeight) ? p.dockHeight : DOCK_DEFAULT_H,
+  };
+}
+
+function clampDockHeight(h) {
+  return Math.max(DOCK_MIN_H, Math.min(h, window.innerHeight - 60));
+}
+
+/** Dockleiste einmalig verdrahten (Umschaltknopf + Ziehgriff). */
+function initDock() {
+  if (dockInit) return;
+  dockInit = true;
+  const bar = document.getElementById("gramet-dockbar");
+  const btn = document.getElementById("gramet-dockmode");
+
+  btn.addEventListener("click", () => {
+    // Ausgangszustand aus dem DOM, nicht aus den Prefs: was zu sehen ist,
+    // entscheidet, wohin geschaltet wird -- auch wenn das Speichern mal
+    // fehlschlägt (Privatmodus, volle Ablage).
+    const next = { docked: !shellEl().classList.contains("docked"), height: dockPrefs().height };
+    savePrefs({ ...loadPrefs(), docked: next.docked, dockHeight: next.height });
+    applyDock(next, "mode");
+  });
+
+  // Höhe ziehen. Die Hülle wächst nach oben (sie ist unten angeschlagen),
+  // also wird die Zeigerbewegung negativ aufgerechnet.
+  let drag = null;
+  bar.addEventListener("pointerdown", (e) => {
+    if (!shellEl().classList.contains("docked")) return;
+    if (e.target.closest("button")) return; // Klick auf den Umschalter
+    drag = { y: e.clientY, h: shellEl().getBoundingClientRect().height };
+    bar.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const h = clampDockHeight(drag.h - (e.clientY - drag.y));
+    shellEl().style.setProperty("--gm-dock-h", `${Math.round(h)}px`);
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    drag = null;
+    if (bar.hasPointerCapture?.(e.pointerId)) bar.releasePointerCapture(e.pointerId);
+    const height = clampDockHeight(shellEl().getBoundingClientRect().height);
+    savePrefs({ ...loadPrefs(), dockHeight: Math.round(height) });
+    applyDock({ docked: true, height }, "resize");
+  };
+  bar.addEventListener("pointerup", endDrag);
+  bar.addEventListener("pointercancel", endDrag);
+
+  // Fenstergröße/Drehung kann das Dock über den CSS-Breakpoint schieben --
+  // dann stimmt die Mindesthöhe der Hauptfläche nicht mehr (s. `asStrip`).
+  // Grund "resize": die Karte soll dabei nicht neu einpassen.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (!isOpen()) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => applyDock(dockPrefs(), "resize"), 200);
+  });
 }
 
 /**
@@ -139,11 +276,13 @@ export async function update(data) {
   const panel = panelEl();
   if (!panel || !data?.run) return;
   bindPrefs(panel);
+  bindSync(panel);
 
   const my = ++seq;
   const { run, modelKey, duration, direction } = data;
   const waypoints = waypointsFromRun(run, direction);
   if (waypoints.length < 2) {
+    cursorSync.clearPath();
     panel.loading = "Diese Trajektorie hat zu wenige Punkte für einen Querschnitt.";
     return;
   }
@@ -161,11 +300,18 @@ export async function update(data) {
     result = await gridFor(run, modelKey, duration, waypoints);
   } catch (err) {
     if (my !== seq) return;
+    cursorSync.clearPath();
     panel.busy = null;
     panel.loading = `GRAMET: ${err.message}`;
     return;
   }
   if (my !== seq) return; // inzwischen wurde eine andere Höhe angefordert
+
+  // Genau diese Liste bekommen Wetterspalten, Profillinie UND die Karte (s.
+  // cursorsync.js): eine zweite Ableitung wäre die naheliegendste Art, sich
+  // bei Rückwärtsläufen lautlos zu vertun.
+  const pos = posOfPath(waypoints);
+  cursorSync.setPath({ run, waypoints, pos });
 
   const prefs = loadPrefs();
   panel.update({
@@ -176,7 +322,7 @@ export async function update(data) {
     // Sekunden seit dem ersten Wegpunkt) — so kann die Profillinie
     // konstruktionsbedingt nicht gegen die Wetterachse verrutschen.
     profile: {
-      pos: posOfPath(waypoints),
+      pos,
       z: waypoints.map((w) => w.z),
       color: run.color,
       label: run.label,
@@ -200,13 +346,18 @@ export async function update(data) {
 }
 
 export async function show(data) {
-  const host = document.getElementById("gramet");
+  const host = shellEl();
+  initDock();
   host.hidden = false;
+  // Erst sichtbar machen, dann die Anordnung anwenden: das Layout-Event soll
+  // die Karte auf eine bereits gültige Geometrie einpassen können.
+  applyDock(dockPrefs(), "open");
   await update(data);
 }
 
 export function hide() {
   document.getElementById("gramet").hidden = true;
+  cursorSync.clearPath();
 }
 
 /** „Zeigt den vorigen Lauf“-Band im Panel setzen/löschen (s. `stale` in

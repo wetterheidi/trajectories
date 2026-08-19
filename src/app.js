@@ -10,6 +10,7 @@ import {
   heightToDisplay, heightFromDisplay, heightSliderCfg,
 } from "./units.js";
 import { initGeocode } from "./geocode.js";
+import * as cursorSync from "./cursorsync.js";
 
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
@@ -1598,6 +1599,9 @@ function grametData() {
 function hideGramet() {
   el("gramet").hidden = true;
   el("grametbtn").textContent = "GRAMET (aktive Höhe)";
+  // Ohne Chart gibt es nichts zu synchronisieren -- und der Kartencursor soll
+  // nicht auf eine Strecke zeigen, die niemand mehr gegenüberstellt.
+  cursorSync.clearPath();
 }
 
 /** Offenes GRAMET nachziehen (Höhenwechsel, Neuberechnung). */
@@ -1629,6 +1633,147 @@ el("grametbtn").addEventListener("click", async () => {
 });
 // Die Web Component meldet ihren eigenen ×-Knopf nach außen (composed).
 el("gramet").addEventListener("close", hideGramet);
+
+// Angedocktes GRAMET (s. src/gramet.js): die Karte bleibt sichtbar, aber der
+// untere Streifen gehört jetzt dem Panel. Beim Öffnen und beim Umschalten den
+// gezeigten Lauf in das einpassen, was von der Karte übrig bleibt -- beim
+// Ziehen an der Höhe dagegen nicht, sonst spränge der Ausschnitt dauernd.
+el("gramet").addEventListener("grametlayout", (e) => {
+  if (e.detail.docked && e.detail.reason !== "resize") fitActiveRunToFreeMap();
+});
+
+// --- Synchronisierte Positionsanzeige auf der Karte -------------------------
+// Gegenstück zum Cursor im GRAMET (s. src/cursorsync.js): der Zeiger über der
+// Trajektorie setzt die Position im Chart, und was das Chart meldet, landet
+// hier als Marke auf der Linie.
+
+// Trefferradius um die Trajektorie in Bildschirmpixeln.
+const CURSOR_HIT_PX = 20;
+
+let cursorMarker = null;
+let projCache = null;
+let hoverPt = null, hoverQueued = false;
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** Wegpunkte der aktiven Pfad-Session in Layer-Pixeln, gecacht. Der Schlüssel
+ *  aus Zoom und Pixelursprung deckt alles ab, was die Projektion verschieben
+ *  kann -- billiger und lückenloser, als die passenden Kartenereignisse
+ *  einzeln abzufangen. */
+function projectedPath() {
+  const path = cursorSync.getPath();
+  // Nur synchronisieren, solange der Lauf, den das GRAMET zeigt, auch auf der
+  // Karte liegt: nach einer Neuberechnung zeichnet die Karte schon die neuen
+  // Linien, während das Panel bis zum nächsten `refreshGramet()` noch die
+  // alten zeigt -- der Cursor zeigte dann irgendwohin.
+  if (!path || !state.lastRuns?.runs?.includes(path.run)) return null;
+  const o = map.getPixelOrigin();
+  const key = `${map.getZoom()}|${o.x}|${o.y}`;
+  if (projCache?.path !== path || projCache.key !== key) {
+    projCache = { path, key, pts: path.waypoints.map((w) => map.latLngToLayerPoint([w.lat, w.lon])) };
+  }
+  return projCache;
+}
+
+/** Wegposition unter dem Zeiger: nächstliegendes Segment in Pixeln gesucht.
+ *  An echten Selbstkreuzungen bleibt die Zuordnung mehrdeutig -- im Bild sind
+ *  die Punkte dort schlicht derselbe --, in Pixeln getrennt ist aber das
+ *  Beste, was ohne Zusatzangaben geht. Die Gegenrichtung ist eindeutig. */
+function posUnderPointer(pt) {
+  const proj = projectedPath();
+  if (!proj || !pt) return null;
+  const { pts, path } = proj;
+  let best = Infinity, bi = -1, bf = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const f = len2 > 0 ? clamp01(((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len2) : 0;
+    const ex = a.x + f * dx - pt.x, ey = a.y + f * dy - pt.y;
+    const d2 = ex * ex + ey * ey;
+    if (d2 < best) { best = d2; bi = i; bf = f; }
+  }
+  if (bi < 0 || best > CURSOR_HIT_PX * CURSOR_HIT_PX) return null;
+  return path.pos[bi - 1] + bf * (path.pos[bi] - path.pos[bi - 1]);
+}
+
+// Zeigerbewegungen kommen häufiger als Bilder -- die Segmentsuche läuft
+// höchstens einmal je Frame.
+map.on("mousemove", (e) => {
+  // Ohne offenes GRAMET gibt es keine Strecke, auf die sich etwas beziehen
+  // ließe -- dann gar nicht erst einen Frame dafür anfordern.
+  if (!cursorSync.getPath()) return;
+  hoverPt = e.layerPoint;
+  if (hoverQueued) return;
+  hoverQueued = true;
+  requestAnimationFrame(() => {
+    hoverQueued = false;
+    cursorSync.setCursor(posUnderPointer(hoverPt), "map");
+  });
+});
+map.on("mouseout", () => cursorSync.setCursor(null, "map"));
+
+function ensureCursorMarker() {
+  if (cursorMarker) return cursorMarker;
+  cursorMarker = L.circleMarker([0, 0], {
+    radius: 6, weight: 2, color: "#0b0b0b", fillColor: "#ffffff", fillOpacity: 1,
+    // Nicht anfassbar: die Marke liegt genau dort, wo die Treffersuche sucht,
+    // und dürfte ihr nicht die Zeigerereignisse wegnehmen.
+    interactive: false,
+  }).bindTooltip("", {
+    permanent: true, direction: "top", offset: [0, -8], className: "gm-cursor-tip",
+  });
+  return cursorMarker;
+}
+
+cursorSync.subscribe(({ at }) => {
+  const container = map.getContainer();
+  if (!at || !Number.isFinite(at.lat) || !Number.isFinite(at.lon)) {
+    cursorMarker?.remove();
+    container.classList.remove("gm-sync");
+    return;
+  }
+  const marker = ensureCursorMarker();
+  marker.setLatLng([at.lat, at.lon]);
+  marker.setStyle({ fillColor: cursorSync.getPath()?.run?.color || "#ffffff" });
+  if (!map.hasLayer(marker)) marker.addTo(map);
+  // Nach einer Neuberechnung liegen frische Linien über der Marke.
+  marker.bringToFront();
+  const z = Number.isFinite(at.z) ? ` · ${fmtHeight(at.z)} NN` : "";
+  marker.setTooltipContent(`${fmtTime(at.t * 1000)}${z}`);
+  // Die Sticky-Tooltips der Linien und Marken sagen daneben dasselbe noch
+  // einmal -- solange die Synchronisierung läuft, bleiben sie weg (s. CSS).
+  container.classList.add("gm-sync");
+});
+
+/** Den Lauf, den das GRAMET zeigt, in den nicht verdeckten Teil der Karte
+ *  einpassen. Die Verdeckung wird aus den tatsächlichen Rechtecken gemessen
+ *  statt aus den CSS-Breakpoints nachgebaut -- so stimmt sie auch im
+ *  Bottom-Sheet-Layout, und die Schwelle bleibt an einer Stelle (im CSS). */
+function fitActiveRunToFreeMap() {
+  if (!state.lastRuns?.runs?.length) return;
+  const pts = grametData().run.r.points.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  if (pts.length < 2) return;
+
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const gm = el("gramet").getBoundingClientRect();
+  // Nur was wirklich als Streifen unten anliegt, ist ein Dock: in der
+  // Vollansicht (und mobil) deckt das Panel die ganze Fläche -- dann gibt es
+  // keinen freien Ausschnitt, in den sich etwas einpassen ließe.
+  const bottomPad = gm.top > vh / 3 ? Math.max(0, vh - gm.top) : 0;
+  if (!bottomPad) return;
+  const pnl = el("panel").getBoundingClientRect();
+  const rightPad = pnl.left > vw / 2 ? Math.max(0, vw - pnl.left) : 0;
+  // Bleibt zu wenig übrig, ist jede Einpassung Unsinn (Leaflet rechnet sich
+  // bei negativem Restraum in absurde Zoomstufen).
+  if (vh - bottomPad < 160 || vw - rightPad < 160) return;
+
+  map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), {
+    paddingTopLeft: [20, 20],
+    paddingBottomRight: [rightPad + 20, bottomPad + 20],
+    maxZoom: 12,
+  });
+}
 
 // --- Export (GeoJSON / GPX / KML) -------------------------------------------
 const DOWNLOAD_FORMATS = {
