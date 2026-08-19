@@ -1513,8 +1513,23 @@ el("gpxupload").addEventListener("change", async (e) => {
   if (lastErr) setStatus(`GPX-Import: ${lastErr}`, true);
 });
 
+// --- Overlays: immer nur eines ----------------------------------------------
+// Querschnitt, 3D-Ansicht und GRAMET liegen alle über der Kartenfläche und
+// überdecken einander (das GRAMET zuoberst, s. z-index in style.css). Parallel
+// geöffnet ergibt das keine zwei Ansichten, sondern eine sichtbare und eine
+// vergessene -- wie in droneforecast (dort `closeProductOverlays()`) schließt
+// deshalb jedes Öffnen die anderen.
+function closeOtherOverlays(keep) {
+  if (keep !== "xsec" && !el("xsec").hidden) showCrossSection(false);
+  if (keep !== "view3d" && !el("view3d").hidden) hide3D();
+  if (keep !== "gramet" && !el("gramet").hidden) hideGramet();
+}
+
 // --- Querschnitt ------------------------------------------------------------
 function showCrossSection(show) {
+  // Im Aufklappen, nicht erst im Knopf-Handler: der Querschnitt geht im
+  // Live-Modus auch von selbst wieder auf (s. `xsecWasOpen`).
+  if (show) closeOtherOverlays("xsec");
   el("xsec").hidden = !show;
   el("xsecbtn").textContent = show ? "Querschnitt ausblenden" : "Querschnitt anzeigen";
   if (show && state.xsec) {
@@ -1569,6 +1584,9 @@ el("view3dbtn").addEventListener("click", async () => {
   setStatus("Lade 3D-Ansicht …");
   try {
     view3dMod ??= await import("./view3d.js");
+    // Erst nach dem Laden: ein gescheiterter Import soll nicht das schließen,
+    // was gerade zu sehen war.
+    closeOtherOverlays("view3d");
     el("view3d").hidden = false;
     await view3dMod.show(view3dData());
     el("view3dbtn").textContent = "3D-Ansicht schließen";
@@ -1621,6 +1639,7 @@ el("grametbtn").addEventListener("click", async () => {
     // Veraltet-Hinweis noch nicht gesehen — hier nachziehen, bevor der
     // (langsamere) Datenabruf läuft.
     grametMod.setStale(stale);
+    closeOtherOverlays("gramet"); // s. o.: erst nach dem Laden
     await grametMod.show(grametData());
     el("grametbtn").textContent = "GRAMET schließen";
     setStatus("");

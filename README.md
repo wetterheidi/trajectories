@@ -90,6 +90,35 @@ Ein geöffnetes GRAMET folgt einem Wechsel der aktiven Höhe; bereits geholte
 Gitter bleiben zwischengespeichert, ein Hin-und-Her kostet also keine neuen
 Abrufe.
 
+Das GRAMET ist **angedockt** voreingestellt: es schlägt unten an, die Karte
+bleibt darüber sichtbar und bedienbar. Die Höhe lässt sich am Griff der
+Leiste ziehen (wird gemerkt), „⤢" schaltet auf die bildschirmfüllende
+Ansicht und zurück. Der Chart wird dabei nicht gestaucht — reicht die
+Dockhöhe nicht, behält die Wetterfläche ihre Höhe und der Panel-Inhalt
+scrollt vertikal; die Zeitangabe bleibt trotzdem sichtbar, weil sie am
+Cursor mitreist (s. u.).
+
+Angedockt zeigen **Karte und GRAMET dieselbe Stelle**: der Zeiger über der
+Trajektorie setzt eine Linie im Querschnitt (samt Punkt auf der
+Profilkurve), der Zeiger im Querschnitt setzt eine Marke auf der Karte.
+Verbindendes Element ist die Position *entlang des Weges* — der Cursor ist
+also eindimensional, die Höhe dazu ist immer die der Trajektorie, nie die des
+Mauszeigers. Liegt der Punkt weit außerhalb des sichtbaren Ausschnitts,
+scrollt der Querschnitt waagerecht nach. An echten Selbstkreuzungen bleibt
+die Richtung Karte → Querschnitt mehrdeutig (das im Bild nächstliegende
+Wegstück gewinnt); die Gegenrichtung ist immer eindeutig.
+
+Die Synchronisierung setzt einen **Mauszeiger** voraus und ist damit heute
+eine Desktop-Funktion: auf schmalen Geräten bleibt das GRAMET
+bildschirmfüllend (für Karte und Querschnitt nebeneinander ist kein Platz),
+und ohne Hover gibt es nichts zu synchronisieren. Eine Touch-Bedienung —
+etwa Tippen im Querschnitt, das die Karte darunter mitführt — ist bewusst
+offen gelassen.
+
+**Nur ein Overlay zugleich:** Querschnitt, 3D-Ansicht und GRAMET belegen
+dieselbe Fläche über der Karte, das Öffnen des einen schließt deshalb die
+anderen (wie die Vorhersageprodukte in droneforecast).
+
 Alle Ergebnisanzeigen — Karte, Ergebnisliste, Querschnitt, 3D-Ansicht und
 GRAMET — zeigen immer den **zuletzt gerechneten** Lauf; eine Parameteränderung
 allein rechnet nicht neu. Damit das nicht unbemerkt bleibt, wird der Zustand
@@ -178,7 +207,8 @@ plus die Zeitmarken als Points mit Wind.
 | `src/config.js` | Server, Modellgitter/BBoxen, feste Höhen-Farbzuordnung |
 | `src/app.js` | Leaflet-UI |
 | `src/view3d.js` | 3D-Ansicht (CesiumJS lazy; Re:Earth / Ion / flat; Esri / OSM) |
-| `src/gramet.js` | GRAMET-Querschnitt entlang der aktiven Trajektorie (lazy; einzige Stelle mit `meteokit/*`-Importen) |
+| `src/gramet.js` | GRAMET-Querschnitt entlang der aktiven Trajektorie (lazy; einzige Stelle mit `meteokit/*`-Importen), Dock-Anordnung |
+| `src/cursorsync.js` | Gemeinsame Positionsanzeige Karte ↔ GRAMET (hält die eine Wegpunktliste, die beide benutzen) |
 | `test/` | Offline-Tests (Kreisschluss, Umkehrbarkeit) + Live-Smoke-Test |
 
 Levelzählung der API: N=1 oberstes Level, N=65 (D2) bzw. N=74 (EU) unterstes
