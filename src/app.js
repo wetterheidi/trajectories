@@ -1026,7 +1026,7 @@ async function runTrajectoriesViaApi({
     const g0 = runs[0]?.terrain?.find((g) => Number.isFinite(g));
     if (Number.isFinite(g0)) state.startElevation = g0;
     el("xsecbtn").disabled = runs.length === 0;
-    el("view3dbtn").disabled = runs.length === 0;
+    el("view3dbtn").disabled = !view3dAvailable();
     el("grametbtn").disabled = runs.length === 0;
     refreshGramet();
     clearStale();
@@ -1259,8 +1259,8 @@ async function runTrajectories() {
     el("xsecbtn").disabled = runs.length === 0;
     if (liveMode && xsecWasOpen && runs.length) showCrossSection(true);
     // Offene 3D-Ansicht läuft mit (Live-Modus, Neuberechnung).
-    el("view3dbtn").disabled = runs.length === 0;
-    if (view3dMod && !el("view3d").hidden && runs.length) view3dMod.update(view3dData());
+    el("view3dbtn").disabled = !view3dAvailable();
+    if (view3dMod && !el("view3d").hidden) view3dMod.update(view3dData());
     // Offenes GRAMET ebenso — die neuen Läufe sind neue Objekte, der
     // Gitter-Cache im Modul greift also nur für unveränderte Pins.
     el("grametbtn").disabled = runs.length === 0;
@@ -1389,22 +1389,28 @@ function parseGPX(text) {
   if (doc.getElementsByTagName("parsererror").length) {
     throw new Error("kein gültiges XML/GPX");
   }
-  const firstText = (node, tag) => {
-    const v = node.getElementsByTagName(tag)[0]?.textContent?.trim();
-    return v ? escapeHtml(v) : null;
+  // Roh (unescaped) -- Escaping passiert je einmal an der Verwendungsstelle
+  // (2D-Tooltip, 3D-InfoBox), nicht schon hier, sonst würde doppelt escaped.
+  const firstText = (node, tag) => node.getElementsByTagName(tag)[0]?.textContent?.trim() || null;
+  // `ele` (Meter) wird mitgenommen, wo vorhanden -- die 3D-Ansicht zeichnet
+  // Punkte mit Höhe erhaben, sonst auf das Gelände geklammert.
+  const eleOf = (node) => {
+    const v = node.getElementsByTagName("ele")[0]?.textContent;
+    const ele = v ? parseFloat(v) : NaN;
+    return Number.isFinite(ele) ? ele : null;
   };
   const linePts = (node, ptTag) => {
     const pts = [];
     for (const pt of node.getElementsByTagName(ptTag)) {
       const lat = parseFloat(pt.getAttribute("lat"));
       const lon = parseFloat(pt.getAttribute("lon"));
-      if (Number.isFinite(lat) && Number.isFinite(lon)) pts.push([lat, lon]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) pts.push({ lat, lon, ele: eleOf(pt) });
     }
     return pts;
   };
 
-  const lines = []; // { name, points: [[lat,lon], ...] }
-  const points = []; // { name, lat, lon }
+  const lines = []; // { name, points: [{lat,lon,ele}, ...] }
+  const points = []; // { name, lat, lon, ele }
 
   for (const trk of doc.getElementsByTagName("trk")) {
     const pts = linePts(trk, "trkpt");
@@ -1419,7 +1425,7 @@ function parseGPX(text) {
     const lat = parseFloat(wpt.getAttribute("lat"));
     const lon = parseFloat(wpt.getAttribute("lon"));
     if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      points.push({ name: firstText(wpt, "name"), lat, lon });
+      points.push({ name: firstText(wpt, "name"), lat, lon, ele: eleOf(wpt) });
     }
   }
   if (!lines.length && !points.length) {
@@ -1467,12 +1473,14 @@ function removeGpxUpload(id) {
   state.uploadLayers.removeLayer(up.layer);
   state.uploads.delete(id);
   renderGpxList();
+  refreshView3dForGpx();
 }
 
 el("gpxclear").addEventListener("click", () => {
   state.uploadLayers.clearLayers();
   state.uploads.clear();
   renderGpxList();
+  refreshView3dForGpx();
 });
 
 el("gpxupload").addEventListener("change", async (e) => {
@@ -1486,6 +1494,8 @@ el("gpxupload").addEventListener("change", async (e) => {
       const color = nextUploadColor();
       const layer = L.layerGroup();
       let count = 0;
+      // L.polyline/circleMarker akzeptieren {lat,lon} direkt (L.latLng nutzt
+      // .lon als Fallback für .lng), daher hier ohne Umformatierung.
       for (const ln of lines) {
         count += ln.points.length;
         L.polyline(ln.points, { color: "#ffffff", weight: 6, opacity: 0.7, interactive: false }).addTo(layer);
@@ -1495,12 +1505,12 @@ el("gpxupload").addEventListener("change", async (e) => {
       }
       for (const p of points) {
         count += 1;
-        L.circleMarker([p.lat, p.lon], { radius: 5, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1 })
+        L.circleMarker(p, { radius: 5, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1 })
           .addTo(layer)
           .bindTooltip(escapeHtml(p.name || file.name), { sticky: true });
       }
       layer.addTo(state.uploadLayers);
-      state.uploads.set(id, { name: file.name, color, layer, count });
+      state.uploads.set(id, { name: file.name, color, layer, count, raw: { lines, points } });
     } catch (err) {
       lastErr = `${file.name}: ${err.message}`;
     }
@@ -1511,7 +1521,17 @@ el("gpxupload").addEventListener("change", async (e) => {
     if (bounds.isValid()) map.fitBounds(bounds, { maxZoom: 13, padding: [30, 30] });
   }
   if (lastErr) setStatus(`GPX-Import: ${lastErr}`, true);
+  refreshView3dForGpx();
 });
+
+/** Aufruf aus dem GPX-Upload/Entfernen: 3D-Knopf freigeben und eine offene
+ *  3D-Ansicht sofort nachziehen (view3dMod/view3dAvailable/view3dData
+ *  stehen weiter unten -- als Funktionsdeklarationen/Modulvariable sind sie
+ *  hier zur Aufrufzeit bereits initialisiert). */
+function refreshView3dForGpx() {
+  el("view3dbtn").disabled = !view3dAvailable();
+  if (view3dMod && !el("view3d").hidden) view3dMod.update(view3dData());
+}
 
 // --- Overlays: immer nur eines ----------------------------------------------
 // Querschnitt, 3D-Ansicht und GRAMET liegen alle über der Kartenfläche und
@@ -1562,13 +1582,30 @@ window.addEventListener("resize", () => {
 // --- 3D-Ansicht (Cesium, lazy geladen) --------------------------------------
 let view3dMod = null;
 
+// Läuft die Ansicht auch an, wenn (noch) keine Trajektorien berechnet sind,
+// aber eigene GPX-Tracks hochgeladen wurden?
+function view3dAvailable() {
+  return !!(state.lastRuns?.runs?.length || state.uploads.size);
+}
+
 // Modellorographie am Start für den Höhenabgleich Geoid vs. Ellipsoid;
 // die Geländewerte entlang des Pfads liegen im Querschnitts-Zustand vor.
+// gpx: eigene Tracks (state.uploads) zur Mitanzeige, unabhängig von den
+// berechneten Läufen.
 function view3dData() {
   return {
-    runs: state.lastRuns.runs,
+    runs: state.lastRuns?.runs ?? [],
     start: state.start,
     modelElev: state.xsec?.runs?.[0]?.terrain?.[0] ?? state.startElevation,
+    // Namen aus der GPX-Datei sind Fremddaten und laufen in Cesiums HTML-
+    // InfoBox -- hier (einmalig) escapen, roh bleiben sie nur in state.uploads
+    // für die 2D-Tooltips, die selbst beim Binden escapen.
+    gpx: [...state.uploads.values()].map((u) => ({
+      name: escapeHtml(u.name),
+      color: u.color,
+      lines: u.raw.lines.map((ln) => ({ ...ln, name: ln.name != null ? escapeHtml(ln.name) : null })),
+      points: u.raw.points.map((p) => ({ ...p, name: p.name != null ? escapeHtml(p.name) : null })),
+    })),
   };
 }
 
@@ -1579,7 +1616,7 @@ function hide3D() {
 
 el("view3dbtn").addEventListener("click", async () => {
   if (!el("view3d").hidden) return hide3D();
-  if (!state.lastRuns?.runs?.length) return;
+  if (!view3dAvailable()) return;
   el("view3dbtn").disabled = true;
   setStatus("Lade 3D-Ansicht …");
   try {

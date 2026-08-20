@@ -249,7 +249,55 @@ function redraw() {
       });
     }
   }
+
+  drawGpx(H);
   viewer.scene.requestRender();
+}
+
+/** Eigene GPX-Tracks (aus dem Upload in den Einstellungen): Linien/Punkte mit
+ *  `<ele>` werden wie Trajektorien erhaben gezeichnet (gleicher Höhenabgleich
+ *  H(z) — Geoid-Versatz gilt großräumig, nicht nur am Trajektorien-Start);
+ *  ohne Höhenangabe wird ans Gelände geklammert (clampToGround), da sonst
+ *  keine sinnvolle Höhe bekannt ist. */
+function drawGpx(H) {
+  for (const track of lastData.gpx || []) {
+    const color = Cesium.Color.fromCssColorString(track.color);
+    for (const ln of track.lines) {
+      const elevated = ln.points.every((p) => Number.isFinite(p.ele));
+      const positions = ln.points.map((p) => elevated
+        ? Cesium.Cartesian3.fromDegrees(p.lon, p.lat, H(p.ele))
+        : Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+      viewer.entities.add({
+        name: ln.name || track.name,
+        polyline: {
+          positions,
+          width: 4,
+          material: new Cesium.PolylineDashMaterialProperty({ color, dashLength: 16 }),
+          clampToGround: !elevated,
+        },
+      });
+    }
+    for (const p of track.points) {
+      const elevated = Number.isFinite(p.ele);
+      const label = p.name || track.name;
+      viewer.entities.add({
+        name: label,
+        position: elevated
+          ? Cesium.Cartesian3.fromDegrees(p.lon, p.lat, H(p.ele))
+          : Cesium.Cartesian3.fromDegrees(p.lon, p.lat),
+        point: {
+          pixelSize: 8,
+          color,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          heightReference: elevated ? Cesium.HeightReference.NONE : Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        description: `<div>${label}${elevated ? `<br>${Math.round(p.ele)} m NN` : ""}<br>` +
+          `${p.lat.toFixed(4)}°N ${p.lon.toFixed(4)}°E</div>`,
+      });
+    }
+  }
 }
 
 function markerHtml(m, label) {
