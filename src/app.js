@@ -747,7 +747,7 @@ async function loadMeta() {
     // Schieber/State nutzen.
     const t0 = meta.last_run_initialisation_time - PAST_HOURS * 3600;
     const t1 = meta.data_end_time;
-    state.meta = { t0, t1 };
+    state.meta = { t0, t1, runInit: meta.last_run_initialisation_time };
     const slider = el("timeslider");
     const prev = +slider.value || null;
     slider.min = Math.ceil(t0 / 3600);
@@ -794,7 +794,14 @@ function updateReachHint() {
   const dur = Math.min(maxDurationH(), Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
   const back = dir === -1;
-  const edgeMs = (back ? state.meta.t0 : state.meta.t1) * 1000;
+  // Rückwärts + API-Vorwärtskante lesen weiterhin state.meta (Zeitschieber
+  // bzw. .om-Mirror-Retention). Die clientseitige Berechnung fragt vorwärts
+  // dagegen live bei der Forecast-API nach (siehe windfield.js) und reicht
+  // daher bis zum vollen Modell-Horizont ab dem Modelllauf, nicht nur bis zur
+  // (kürzeren) Mirror-Kante state.meta.t1.
+  const apiMode = el("useapi").checked;
+  const forwardEdgeSec = apiMode ? state.meta.t1 : state.meta.runInit + MAX_DURATION_CLIENT_H * 3600;
+  const edgeMs = (back ? state.meta.t0 : forwardEdgeSec) * 1000;
   const availH = Math.max(0, (back ? t0Ms - edgeMs : edgeMs - t0Ms) / 3600e3);
   const word = back ? "rückwärts" : "vorwärts";
   if (availH < dur) {
