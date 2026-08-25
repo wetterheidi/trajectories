@@ -468,6 +468,9 @@ function applyModeUI() {
 el("livemode").addEventListener("change", () => {
   if (el("livemode").checked && el("useapi").checked) {
     el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
+    syncDurationBounds();
+    syncSliderBounds();
+    updateReachHint();
   }
   applyModeUI();
   state.live = null;
@@ -641,6 +644,7 @@ el("useapi").addEventListener("change", () => {
     state.live = null;
   }
   syncDurationBounds();
+  syncSliderBounds();
   updateReachHint();
   persist();
   updateRunButton();
@@ -751,7 +755,7 @@ async function loadMeta() {
     const slider = el("timeslider");
     const prev = +slider.value || null;
     slider.min = Math.ceil(t0 / 3600);
-    slider.max = Math.floor(t1 / 3600);
+    slider.max = Math.floor(forwardEdgeSec() / 3600);
     // Beim ersten Laden auf die aktuelle Uhrzeit (auf volle Stunde gerundet)
     // stellen, bei Modellwechsel die gewählte Zeit behalten — jeweils auf den
     // verfügbaren Zeitraum begrenzt.
@@ -785,6 +789,30 @@ function updateDirectionLabels() {
   el("timeheadlabel").innerHTML = `${back ? "Zielzeit" : "Startzeit"} <span class="hint">(UTC)</span>`;
 }
 
+// Vorwärtskante, bis zu der Läufe (und der Zeitschieber) reichen dürfen —
+// modusabhängig: API-Modus liest state.meta.t1 (.om-Mirror-Retention), die
+// clientseitige Berechnung fragt live bei der Forecast-API nach (siehe
+// windfield.js) und reicht daher bis zum vollen Modell-Horizont
+// (MAX_DURATION_CLIENT_H) ab dem Modelllauf.
+function forwardEdgeSec() {
+  if (!state.meta) return null;
+  return el("useapi").checked
+    ? state.meta.t1
+    : state.meta.runInit + MAX_DURATION_CLIENT_H * 3600;
+}
+
+// Zeitschieber-Obergrenze neu ziehen, wenn sich der Rechenmodus ändert (ohne
+// meta.json neu zu laden) — sonst bliebe der Schieber im clientseitigen
+// Modus fälschlich auf der kürzeren API-Kante stehen.
+function syncSliderBounds() {
+  if (!state.meta) return;
+  const slider = el("timeslider");
+  const prev = +slider.value;
+  slider.max = Math.floor(forwardEdgeSec() / 3600);
+  slider.value = Math.min(Math.max(prev, +slider.min), +slider.max);
+  updateTimeLabel();
+}
+
 // Vorab-Hinweis, wie weit die Daten in der gewählten Richtung ab dem
 // gewählten Zeitpunkt reichen — nur Transparenz, kein harter Block.
 function updateReachHint() {
@@ -794,14 +822,7 @@ function updateReachHint() {
   const dur = Math.min(maxDurationH(), Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
   const back = dir === -1;
-  // Rückwärts + API-Vorwärtskante lesen weiterhin state.meta (Zeitschieber
-  // bzw. .om-Mirror-Retention). Die clientseitige Berechnung fragt vorwärts
-  // dagegen live bei der Forecast-API nach (siehe windfield.js) und reicht
-  // daher bis zum vollen Modell-Horizont ab dem Modelllauf, nicht nur bis zur
-  // (kürzeren) Mirror-Kante state.meta.t1.
-  const apiMode = el("useapi").checked;
-  const forwardEdgeSec = apiMode ? state.meta.t1 : state.meta.runInit + MAX_DURATION_CLIENT_H * 3600;
-  const edgeMs = (back ? state.meta.t0 : forwardEdgeSec) * 1000;
+  const edgeMs = (back ? state.meta.t0 : forwardEdgeSec()) * 1000;
   const availH = Math.max(0, (back ? t0Ms - edgeMs : edgeMs - t0Ms) / 3600e3);
   const word = back ? "rückwärts" : "vorwärts";
   if (availH < dur) {
