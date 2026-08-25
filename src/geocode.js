@@ -24,6 +24,44 @@ function coordFeature(lat, lon) {
   };
 }
 
+const HISTORY_KEY = "trajectories.geocodeHistory.v1";
+const HISTORY_MAX = 8;
+
+function loadHistory() {
+  try {
+    const list = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(list) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+  } catch {
+    /* Speichern ist Komfort, nie Fehlerquelle */
+  }
+}
+
+// Neuen Eintrag vorn einreihen; einen Treffer an (fast) derselben Stelle
+// ersetzen statt duplizieren, damit die Historie nicht mit Wiederholungen
+// vollläuft.
+function addToHistory({ lat, lon, name, sub }) {
+  const list = loadHistory().filter(
+    (e) => Math.abs(e.lat - lat) > 1e-4 || Math.abs(e.lon - lon) > 1e-4,
+  );
+  list.unshift({ lat, lon, name, sub });
+  saveHistory(list.slice(0, HISTORY_MAX));
+}
+
+function historyFeature(entry) {
+  return {
+    geometry: { coordinates: [entry.lon, entry.lat] },
+    properties: { name: entry.name, city: entry.sub || "" },
+  };
+}
+
 function textEl(tag, text, className) {
   const n = document.createElement(tag);
   if (className) n.className = className;
@@ -62,12 +100,23 @@ export function initGeocode({ map, setStart, debounce, el }) {
 
   let hits = [];
   let active = -1;
+  let historyMode = false;
 
   function hide() {
     list.hidden = true;
     list.innerHTML = "";
     hits = [];
     active = -1;
+    historyMode = false;
+  }
+
+  function showHistory() {
+    const hist = loadHistory();
+    if (!hist.length) return;
+    hits = hist.map(historyFeature);
+    active = 0;
+    historyMode = true;
+    render();
   }
 
   function render() {
@@ -76,6 +125,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
       list.hidden = true;
       return;
     }
+    if (historyMode) list.appendChild(textEl("li", "Zuletzt verwendet", "geo-hist-head"));
     hits.forEach((f, i) => {
       const { name, sub } = featureLabel(f.properties || {});
       const li = document.createElement("li");
@@ -98,6 +148,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
     const { name, sub } = featureLabel(f.properties || {});
     input.value = sub ? `${name}, ${sub}` : name;
     hide();
+    addToHistory({ lat, lon, name, sub });
     setStart(lat, lon);
     map.setView([lat, lon], Math.max(map.getZoom(), 11));
   }
@@ -112,6 +163,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
       hide();
       return;
     }
+    historyMode = false;
     const coord = parseCoordInput(q);
     if (coord) {
       hits = [coordFeature(coord.lat, coord.lon)];
@@ -128,7 +180,14 @@ export function initGeocode({ map, setStart, debounce, el }) {
     }
   }, 300);
 
-  input.addEventListener("input", runSearch);
+  input.addEventListener("input", () => {
+    if (!input.value.trim()) {
+      showHistory();
+      return;
+    }
+    runSearch();
+  });
+  input.addEventListener("focus", showHistory);
   input.addEventListener("keydown", (e) => {
     // Auf Enter direkt springen, auch bevor die debounced Suche gefeuert
     // hat — Koordinaten sind eindeutig und brauchen keine Bestätigung aus

@@ -78,6 +78,16 @@ select, input[type="number"], input[type="search"] {
 #geocode-results li:hover,
 #geocode-results li.active { background: #eef4fb; }
 #geocode-results .geo-sub { display: block; color: #52514e; font-size: 11px; }
+#geocode-results .geo-hist-head {
+  padding: 4px 8px;
+  cursor: default;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #8c8b85;
+  background: #faf9f6;
+}
+#geocode-results .geo-hist-head:hover { background: #faf9f6; }
 
 input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
