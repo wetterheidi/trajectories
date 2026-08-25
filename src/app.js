@@ -66,6 +66,7 @@ function persist() {
     start: state.start,
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
+    airspace: map.hasLayer(airspaceLayer),
     units: { ...unitState },
     liveMode: el("livemode").checked,
     methods: selectedMethods(),
@@ -108,10 +109,27 @@ const baseLayers = {
 };
 let activeBaseLayer = baseLayers[saved.baseLayer] ? saved.baseLayer : "OpenStreetMap";
 baseLayers[activeBaseLayer].addTo(map);
-L.control.layers(baseLayers, null, { position: "topleft" }).addTo(map);
+
+// Lufträume-Overlay (openflightmaps), wie in DZMaster.
+const airspaceLayer = L.tileLayer("https://nwy-tiles-api.prod.newaydata.com/tiles/{z}/{x}/{y}.png?path=latest/aero/latest", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openflightmaps.org">openflightmaps.org</a>',
+  opacity: 0.8,
+  zIndex: 2,
+  updateWhenIdle: true,
+  keepBuffer: 2,
+  subdomains: ["a", "b", "c"],
+});
+const overlayLayers = { "Lufträume": airspaceLayer };
+if (saved.airspace) airspaceLayer.addTo(map);
+
+L.control.layers(baseLayers, overlayLayers, { position: "topleft" }).addTo(map);
 map.on("baselayerchange", (e) => {
   activeBaseLayer = e.name;
   persist();
+});
+map.on("overlayadd overlayremove", (e) => {
+  if (e.layer === airspaceLayer) persist();
 });
 
 const state = {
