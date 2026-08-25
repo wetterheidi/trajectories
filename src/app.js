@@ -20,6 +20,23 @@ const DEBUG = new URLSearchParams(location.search).has("debug") ||
 
 const el = (id) => document.getElementById(id);
 
+// Maximale Trajektoriendauer je Rechenmodus. Die Browser-Berechnung fragt das
+// Windfeld direkt über die Live-API ab (wie dronecast) und reicht damit so
+// weit wie ICON-EU selbst (~120 h); der API-Request-Modus rechnet serverseitig
+// über einen separat gepflegten .om-Mirror (TRAJECTORIES_OM_ROOT) mit kürzerem
+// Retention-Fenster und bleibt daher enger begrenzt.
+const MAX_DURATION_CLIENT_H = 120;
+const MAX_DURATION_API_H = 72;
+function maxDurationH() {
+  return el("useapi").checked ? MAX_DURATION_API_H : MAX_DURATION_CLIENT_H;
+}
+function syncDurationBounds() {
+  const max = maxDurationH();
+  const input = el("duration");
+  input.max = String(max);
+  if (+input.value > max) input.value = String(max);
+}
+
 // --- Einstellungen in localStorage ------------------------------------------
 const STORAGE_KEY = "trajectories.settings.v1";
 
@@ -617,11 +634,14 @@ el("useapi").checked = saved.useApi !== false;
 if (el("useapi").checked && el("livemode").checked) {
   el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
 }
+syncDurationBounds();
 el("useapi").addEventListener("change", () => {
   if (el("useapi").checked && el("livemode").checked) {
     el("livemode").checked = false;
     state.live = null;
   }
+  syncDurationBounds();
+  updateReachHint();
   persist();
   updateRunButton();
   markStale();
@@ -722,8 +742,9 @@ async function loadMeta() {
   el("status").className = "";
   try {
     const meta = await (await fetch(`${API_BASE}/data/${model.dataset}/static/meta.json`)).json();
-    // Der Server hält mehrere Tage Archiv (geprüft ≥5 d) — für Rückwärts-
-    // trajektorien großzügiger Vorlauf; die echte Kante meldet der Integrator.
+    // Zeitschieber blickt bewusst nur PAST_HOURS zurück (nicht die volle
+    // Serverarchivtiefe) — gilt für beide Rechenvarianten, da beide denselben
+    // Schieber/State nutzen.
     const t0 = meta.last_run_initialisation_time - PAST_HOURS * 3600;
     const t1 = meta.data_end_time;
     state.meta = { t0, t1 };
@@ -753,9 +774,9 @@ function updateTimeLabel() {
   el("timelabel").textContent = fmtTime(+el("timeslider").value * 3600e3);
 }
 
-// Vergangenheits-Horizont für den Zeitschieber (der Server hält mehrere Tage
-// Archiv). Die echte Datenkante meldet ansonsten der Integrator.
-const PAST_HOURS = 72;
+// Vergangenheits-Horizont für den Zeitschieber, absichtlich auf 24 h begrenzt
+// (unabhängig davon, wie viel Archiv der Server tatsächlich hält).
+const PAST_HOURS = 24;
 
 // Bei Rückwärtstrajektorien ist der gesetzte Punkt/Zeitpunkt die Ankunft.
 function updateDirectionLabels() {
@@ -770,7 +791,7 @@ function updateReachHint() {
   const box = el("reachhint");
   if (!state.meta) { box.textContent = ""; box.classList.remove("error"); return; }
   const dir = +el("direction").value;
-  const dur = Math.min(72, Math.max(1, +el("duration").value || 12));
+  const dur = Math.min(maxDurationH(), Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
   const back = dir === -1;
   const edgeMs = (back ? state.meta.t0 : state.meta.t1) * 1000;
@@ -1074,7 +1095,7 @@ async function runTrajectories() {
     return setStatus("Bitte mindestens eine Methode wählen.", true);
   }
   const direction = +el("direction").value;
-  const duration = Math.min(72, Math.max(1, +el("duration").value || 12));
+  const duration = Math.min(maxDurationH(), Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
 
   if (!activeHeights.length) {
