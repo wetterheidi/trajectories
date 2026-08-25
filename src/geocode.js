@@ -1,5 +1,7 @@
 /* global L */
 
+import { parseCoordInput } from "./coords.js";
+
 const PHOTON = "https://photon.komoot.io";
 
 function featureLabel(props) {
@@ -8,6 +10,18 @@ function featureLabel(props) {
     .filter(Boolean)
     .filter((c, i, a) => a.indexOf(c) === i && c !== name);
   return { name, sub: crumbs.join(", ") };
+}
+
+// Dezimal- oder MGRS-Koordinate als Photon-artiges Feature verpacken, damit
+// render()/pick() unverändert bleiben können.
+function coordFeature(lat, lon) {
+  const ns = lat >= 0 ? "N" : "S";
+  const ew = lon >= 0 ? "E" : "W";
+  const label = `${Math.abs(lat).toFixed(5)}°${ns} ${Math.abs(lon).toFixed(5)}°${ew}`;
+  return {
+    geometry: { coordinates: [lon, lat] },
+    properties: { name: "Koordinate", city: label },
+  };
 }
 
 function textEl(tag, text, className) {
@@ -78,8 +92,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
     list.hidden = false;
   }
 
-  function pick(i) {
-    const f = hits[i];
+  function pickFeature(f) {
     if (!f?.geometry?.coordinates) return;
     const [lon, lat] = f.geometry.coordinates;
     const { name, sub } = featureLabel(f.properties || {});
@@ -89,10 +102,21 @@ export function initGeocode({ map, setStart, debounce, el }) {
     map.setView([lat, lon], Math.max(map.getZoom(), 11));
   }
 
+  function pick(i) {
+    pickFeature(hits[i]);
+  }
+
   const runSearch = debounce(async () => {
     const q = input.value.trim();
     if (q.length < 2) {
       hide();
+      return;
+    }
+    const coord = parseCoordInput(q);
+    if (coord) {
+      hits = [coordFeature(coord.lat, coord.lon)];
+      active = 0;
+      render();
       return;
     }
     try {
@@ -106,6 +130,17 @@ export function initGeocode({ map, setStart, debounce, el }) {
 
   input.addEventListener("input", runSearch);
   input.addEventListener("keydown", (e) => {
+    // Auf Enter direkt springen, auch bevor die debounced Suche gefeuert
+    // hat — Koordinaten sind eindeutig und brauchen keine Bestätigung aus
+    // der (noch nicht aktualisierten) Trefferliste.
+    if (e.key === "Enter") {
+      const coord = parseCoordInput(input.value.trim());
+      if (coord) {
+        e.preventDefault();
+        pickFeature(coordFeature(coord.lat, coord.lon));
+        return;
+      }
+    }
     if (list.hidden || !hits.length) {
       if (e.key === "Escape") hide();
       return;
