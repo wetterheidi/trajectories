@@ -77,7 +77,7 @@ async function photonSearch(q) {
   return Array.isArray(data.features) ? data.features : [];
 }
 
-async function photonReverse(lat, lon) {
+async function photonReverseLabel(lat, lon) {
   const url = `${PHOTON}/reverse?${new URLSearchParams({
     lat: String(lat), lon: String(lon), limit: "1", lang: "de",
   })}`;
@@ -85,9 +85,13 @@ async function photonReverse(lat, lon) {
   if (!resp.ok) throw new Error(`Photon ${resp.status}`);
   const data = await resp.json();
   const f = data.features?.[0];
-  if (!f) return null;
-  const { name, sub } = featureLabel(f.properties || {});
-  return sub ? `${name} — ${sub}` : name;
+  return f ? featureLabel(f.properties || {}) : null;
+}
+
+async function photonReverse(lat, lon) {
+  const label = await photonReverseLabel(lat, lon);
+  if (!label) return null;
+  return label.sub ? `${label.name} — ${label.sub}` : label.name;
 }
 
 /**
@@ -101,6 +105,7 @@ export function initGeocode({ map, setStart, debounce, el }) {
   let hits = [];
   let active = -1;
   let historyMode = false;
+  let lastRecorded = null;
 
   function hide() {
     list.hidden = true;
@@ -148,13 +153,32 @@ export function initGeocode({ map, setStart, debounce, el }) {
     const { name, sub } = featureLabel(f.properties || {});
     input.value = sub ? `${name}, ${sub}` : name;
     hide();
-    addToHistory({ lat, lon, name, sub });
     setStart(lat, lon);
     map.setView([lat, lon], Math.max(map.getZoom(), 11));
   }
 
   function pick(i) {
     pickFeature(hits[i]);
+  }
+
+  // Für einen tatsächlich berechneten Startpunkt in die Historie eintragen —
+  // unabhängig davon, wie er gesetzt wurde (Klick, Ziehen, Rechtsklick,
+  // Suche, Koordinate). Versucht per Reverse-Geocoding einen Ortsnamen zu
+  // finden, sonst die Koordinate als Label.
+  async function recordHistory(lat, lon) {
+    // Live-Modus rechnet bei jeder Balkenbewegung am selben Punkt neu — ohne
+    // diese Sperre würde das die Historie (und Photon) mit Wiederholungen
+    // fluten.
+    if (lastRecorded && Math.abs(lastRecorded.lat - lat) < 1e-4
+      && Math.abs(lastRecorded.lon - lon) < 1e-4) return;
+    lastRecorded = { lat, lon };
+    let name, sub;
+    try {
+      const label = await photonReverseLabel(lat, lon);
+      if (label) ({ name, sub } = label);
+    } catch { /* Reverse-Geocoding optional — Koordinate reicht als Fallback */ }
+    if (!name) ({ name, sub } = featureLabel(coordFeature(lat, lon).properties));
+    addToHistory({ lat, lon, name, sub });
   }
 
   const runSearch = debounce(async () => {
@@ -239,4 +263,6 @@ export function initGeocode({ map, setStart, debounce, el }) {
       popup.setContent(textEl("div", "Geocoding fehlgeschlagen"));
     }
   });
+
+  return { recordHistory };
 }

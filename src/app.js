@@ -657,7 +657,7 @@ function setStart(lat, lon) {
   markStale();
 }
 
-initGeocode({ map, setStart, debounce, el });
+const geocode = initGeocode({ map, setStart, debounce, el });
 
 // Modell-Geländehöhe am Startort — bewusst aus der Forecast-Antwort des
 // gewählten Modells (Modellorographie), damit die Anzeige zu dem passt,
@@ -1086,6 +1086,7 @@ async function runTrajectories() {
   if (lat < b.latMin || lat > b.latMax || lon < b.lonMin || lon > b.lonMax) {
     return setStatus(`Startpunkt liegt außerhalb des ${model.label}-Gebiets.`, true);
   }
+  geocode?.recordHistory(lat, lon);
 
   // Optional: Trajectories-HTTP-API statt Browser-Windfeld/Integrator.
   if (el("useapi").checked) {
