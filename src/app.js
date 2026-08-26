@@ -1026,13 +1026,12 @@ async function runTrajectoriesViaApi({
   state.pinRuns.clear();
   state.pinKey = "";
   el("results").innerHTML = "";
-  el("download").disabled = true;
-  el("xsecbtn").disabled = true;
-  el("view3dbtn").disabled = true;
-  el("grametbtn").disabled = true;
+  // Download/Querschnitt/3D/GRAMET NICHT hier schon abschalten und
+  // lastRuns/xsec NICHT hier schon verwerfen: bricht die Anfrage ab (Timeout,
+  // Server-Fehler), sollen die vorigen, noch gültigen Ergebnisse bedienbar
+  // bleiben statt die Bedienelemente ohne Wiederherstellungsweg zu sperren
+  // (erst der Erfolgspfad unten ersetzt sie).
   el("xsec").hidden = true;
-  state.lastRuns = null;
-  state.xsec = null;
   state.live = null;
   setStatus("API: lade Trajektorien …");
 
@@ -1189,14 +1188,13 @@ async function runTrajectories() {
     state.pinRuns.clear();
     state.pinKey = "";
   }
-  el("download").disabled = true;
-  el("xsecbtn").disabled = true;
-  el("view3dbtn").disabled = true;
-  el("grametbtn").disabled = true;
+  // Download/Querschnitt/3D/GRAMET NICHT hier schon abschalten und
+  // lastRuns/xsec NICHT hier schon verwerfen (s. gleiche Begründung in
+  // runTrajectoriesViaApi oben): scheitert der Lauf (z. B. Windfeld-Abruf),
+  // bleiben die vorigen, noch gültigen Ergebnisse bedienbar statt die
+  // Bedienelemente ohne Wiederherstellungsweg zu sperren.
   const xsecWasOpen = !el("xsec").hidden;
   el("xsec").hidden = true;
-  state.lastRuns = null;
-  state.xsec = null;
   setStatus("Berechne …");
   const t0 = performance.now();
 
