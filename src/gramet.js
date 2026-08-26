@@ -235,7 +235,7 @@ function waypointsFromRun(run, direction) {
  *  Ebenenschalter und Bereichsumschalter und bricht sonst um. Die X-Achse
  *  zählt verstrichene Zeit ab dem linken Rand; welcher Zeitpunkt das ist,
  *  steht deshalb hier (bei Rückwärtsläufen ist links die Herkunft). */
-function subtitleFor({ run, modelKey, direction }, waypoints) {
+function subtitleFor({ run, modelKey, direction, hiddenMethods }, waypoints) {
   const t0 = new Date(waypoints[0].t * 1000);
   const t1 = new Date(waypoints[waypoints.length - 1].t * 1000);
   const dm = (d) => `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.`;
@@ -245,7 +245,13 @@ function subtitleFor({ run, modelKey, direction }, waypoints) {
     ? `${dm(t0)} ${hm(t0)}→${hm(t1)}Z`
     : `${dm(t0)} ${hm(t0)}Z→${dm(t1)} ${hm(t1)}Z`;
   const dir = direction < 0 ? "rückw." : "vorw.";
-  return `${modelKey.replace("_", "-").toUpperCase()} · ${run.label} · ${dir} · ${span}`;
+  // Im Methodenvergleich zeigt GRAMET nur EINE Trajektorie je Höhe -- bei
+  // teils deutlich auseinanderlaufenden Läufen soll das nicht unbemerkt
+  // bleiben.
+  const hidden = hiddenMethods > 0
+    ? ` · +${hiddenMethods} weitere Methode${hiddenMethods > 1 ? "n" : ""} ausgeblendet`
+    : "";
+  return `${modelKey.replace("_", "-").toUpperCase()} · ${run.label} · ${dir} · ${span}${hidden}`;
 }
 
 async function gridFor(run, modelKey, duration, waypoints) {
@@ -271,7 +277,7 @@ async function gridFor(run, modelKey, duration, waypoints) {
 }
 
 /** Panel mit der Cross-Section zum übergebenen Lauf füllen.
- *  `data = { run, modelKey, t0Ms, duration, direction }` (s. app.js). */
+ *  `data = { run, modelKey, t0Ms, duration, direction, hiddenMethods }` (s. app.js). */
 export async function update(data) {
   const panel = panelEl();
   if (!panel || !data?.run) return;

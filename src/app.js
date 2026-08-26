@@ -1712,9 +1712,14 @@ el("v3d-close").addEventListener("click", hide3D);
 function grametData() {
   const { runs, modelKey, t0Ms, duration, direction } = state.lastRuns;
   // Im Methodenvergleich teilen sich mehrere Läufe eine Höhe — dann der
-  // erste; `run.label` nennt die Methode, das Panel zeigt sie im Untertitel.
-  const run = runs.find((x) => x.heightM === activeHeight) ?? runs[0];
-  return { run, modelKey, t0Ms, duration, direction };
+  // erste (Reihenfolge s. METHODS in config.js); `run.label` nennt die
+  // Methode, das Panel zeigt sie im Untertitel. Die übrigen zählt
+  // `hiddenMethods` mit, damit nicht unbemerkt bleibt, dass GRAMET nur eine
+  // von mehreren teils deutlich auseinanderlaufenden Trajektorien zeigt.
+  const sameHeight = runs.filter((x) => x.heightM === activeHeight);
+  const run = sameHeight[0] ?? runs[0];
+  const hiddenMethods = Math.max(sameHeight.length - 1, 0);
+  return { run, modelKey, t0Ms, duration, direction, hiddenMethods };
 }
 
 function hideGramet() {
