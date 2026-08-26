@@ -218,6 +218,28 @@ export class WindField {
     this.points.set(this.key(iLat, iLon), point);
   }
 
+  /** Netzwerkfehler (z. B. kurzer Neustart von Michaels Server während eines
+   *  GRIB-Imports) sind meist binnen Sekunden vorbei — bei langen Trajektorien
+   *  mit vielen Nachlade-Runden lohnt sich ein paar Mal erneut zu versuchen,
+   *  bevor der Lauf als gescheitert gemeldet wird. */
+  async fetchWithRetry(url, attempts = 3, delayMs = 1500) {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const resp = await this.fetch(url);
+        if (!resp.ok && resp.status >= 500 && i < attempts - 1) {
+          await sleep(delayMs * (i + 1));
+          continue;
+        }
+        return resp;
+      } catch (err) {
+        if (i === attempts - 1) {
+          throw new Error("Wetterserver kurzzeitig nicht erreichbar (Verbindung abgelehnt) – bitte erneut versuchen.");
+        }
+        await sleep(delayMs * (i + 1));
+      }
+    }
+  }
+
   async request(coords, vars, withMeta = false) {
     const params = new URLSearchParams({
       latitude: coords.map((c) => round5(c[0])).join(","),
@@ -230,7 +252,7 @@ export class WindField {
       cell_selection: "nearest",
     });
     const url = `${API_BASE}/v1/forecast?${params}`;
-    const resp = await this.fetch(url);
+    const resp = await this.fetchWithRetry(url);
     const body = await resp.text();
     let data;
     try {
@@ -543,4 +565,8 @@ function firstFinite(arr) {
 
 function round5(x) {
   return Math.round(x * 1e5) / 1e5;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
