@@ -1,4 +1,6 @@
-export const API_BASE = "https://open-meteo.mah.priv.at";
+// Im Dev-Server über den Vite-Proxy (vite.config.js) -- Michaels Server lässt
+// per CORS-Allowlist nur die Produktions-Origin direkt aus dem Browser durch.
+export const API_BASE = import.meta.env.DEV ? "/api-proxy" : "https://open-meteo.mah.priv.at";
 
 /** FastAPI trajectories service (GeoJSON). Used when „API abrufen“ is checked. */
 export const TRAJECTORY_API = "https://trajectory.mah.priv.at";

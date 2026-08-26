@@ -16,6 +16,13 @@ import * as cursorSync from "./cursorsync.js";
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
   localStorage.getItem("trajDebug") === "1";
 
+// trajectory.mah.priv.at ist derzeit gestört: „API abrufen" ist für normale
+// Nutzer gesperrt (Checkbox bleibt aus/disabled) und fällt auf die
+// Browser-Berechnung zurück. Für Tests im Hintergrund aktivierbar über
+// ?devapi=1 an der URL oder localStorage.trajDevApi = "1".
+const DEV_API = new URLSearchParams(location.search).has("devapi") ||
+  localStorage.getItem("trajDevApi") === "1";
+
 /* global L */
 
 const el = (id) => document.getElementById(id);
@@ -651,9 +658,15 @@ if (Array.isArray(saved.methods) && saved.methods.length) {
 applyModeUI();
 
 if (saved.metExtras) el("metextras").checked = true;
-el("useapi").checked = saved.useApi !== false;
-if (el("useapi").checked && el("livemode").checked) {
-  el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
+if (DEV_API) {
+  el("useapi").disabled = false;
+  el("useapi").title = "";
+  el("useapi").checked = saved.useApi !== false;
+  if (el("useapi").checked && el("livemode").checked) {
+    el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
+  }
+} else {
+  el("useapi").checked = false;
 }
 syncDurationBounds();
 el("useapi").addEventListener("change", () => {
@@ -678,8 +691,44 @@ updateHeightContext();
 
 settingsReady = true;
 
-// --- Startpunkt per Klick / Marker ziehen -----------------------------------
-map.on("click", (e) => setStart(e.latlng.lat, e.latlng.lng));
+// --- Startpunkt per Rechtsklick, Drag oder Long-Press -----------------------
+// Bewusst NICHT per einfachem Linksklick, damit man auf der Karte pannen/
+// zoomen/klicken kann, ohne den Startmarker versehentlich zu verschieben.
+// Rechtsklick setzt/verschiebt in geocode.js (dort auch die Reverse-Geocode-
+// Popup-Logik). Hier zusätzlich Long-Press als Touch-Ersatz für Rechtsklick,
+// da Leaflet kein verlässliches Long-Press-Event liefert.
+(function enableLongPressStart() {
+  const container = map.getContainer();
+  const HOLD_MS = 500; // Haltedauer bis zum Auslösen
+  const MOVE_TOL = 12; // erlaubte Fingerbewegung (px); mehr = Pan/Zoom
+  let timer = null, startX = 0, startY = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+  container.addEventListener("touchstart", (e) => {
+    // Nur Einzelfinger, nicht auf dem (ziehbaren) Marker selbst.
+    if (e.touches.length !== 1) { cancel(); return; }
+    if (e.target.closest && e.target.closest(".leaflet-marker-icon")) return;
+    const t = e.touches[0];
+    startX = t.clientX; startY = t.clientY;
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      const rect = container.getBoundingClientRect();
+      const cp = L.point(startX - rect.left, startY - rect.top);
+      const ll = map.containerPointToLatLng(cp);
+      setStart(ll.lat, ll.lng);
+    }, HOLD_MS);
+  }, { passive: true });
+
+  container.addEventListener("touchmove", (e) => {
+    if (!timer) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - startX) > MOVE_TOL || Math.abs(t.clientY - startY) > MOVE_TOL) cancel();
+  }, { passive: true });
+
+  container.addEventListener("touchend", cancel, { passive: true });
+  container.addEventListener("touchcancel", cancel, { passive: true });
+})();
 
 function setStart(lat, lon) {
   state.start = { lat, lon };

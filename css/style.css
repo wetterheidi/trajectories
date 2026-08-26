@@ -73,11 +73,29 @@ select, input[type="number"], input[type="search"] {
   border-bottom: 1px solid #eee;
   font-size: 13px;
   line-height: 1.3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
 }
 #geocode-results li:last-child { border-bottom: none; }
 #geocode-results li:hover,
 #geocode-results li.active { background: #eef4fb; }
+#geocode-results .geo-text { min-width: 0; }
 #geocode-results .geo-sub { display: block; color: #52514e; font-size: 11px; }
+#geocode-results .geo-star {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.3;
+  color: #c9c8c2;
+  cursor: pointer;
+}
+#geocode-results .geo-star:hover { color: #b8860b; }
+#geocode-results .geo-star.fav { color: #d9a441; }
 #geocode-results .geo-hist-head {
   padding: 4px 8px;
   cursor: default;

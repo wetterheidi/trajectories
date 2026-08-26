@@ -18,7 +18,26 @@
 import "meteokit/components/gramet-panel";
 import { fetchGridForPath, posOfPath } from "meteokit/gramet";
 import { setUnits as setKitUnits } from "meteokit/units";
+import { configure, MODELS, API_BASE } from "meteokit/config";
 import * as cursorSync from "./cursorsync.js";
+
+// Im Dev-Server (import.meta.env.DEV) läuft der Modell-Level-Abruf über den
+// Vite-Proxy statt direkt gegen Michaels Server (s. vite.config.js): der
+// lässt per Caddy-CORS-Allowlist nur die Produktions-Origins durch, ein
+// direkter Browser-Request von localhost bekäme 403 (s. src/config.js).
+// Betrifft nur Modelle, deren apiBase auf diesen Server zeigt (ICON-D2/EU) --
+// ICON Global (eigener Server, offene CORS) und die öffentliche
+// Oberflächen-Instanz bleiben unverändert.
+if (import.meta.env.DEV) {
+  configure({
+    models: Object.fromEntries(
+      Object.entries(MODELS).map(([key, m]) => [
+        key,
+        m.apiBase === API_BASE ? { ...m, apiBase: "/api-proxy" } : m,
+      ]),
+    ),
+  });
+}
 
 const STORAGE_KEY = "trajectories.gramet.v1";
 

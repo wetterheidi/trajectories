@@ -44,21 +44,49 @@ function saveHistory(list) {
   }
 }
 
+// Favoriten zählen nicht gegen die Kapazität — nur die HISTORY_MAX jüngsten
+// unmarkierten Einträge werden beim Einreihen verdrängt.
+function capHistory(list) {
+  let kept = 0;
+  return list.filter((e) => {
+    if (e.fav) return true;
+    kept += 1;
+    return kept <= HISTORY_MAX;
+  });
+}
+
 // Neuen Eintrag vorn einreihen; einen Treffer an (fast) derselben Stelle
-// ersetzen statt duplizieren, damit die Historie nicht mit Wiederholungen
-// vollläuft.
+// ersetzen statt duplizieren (Favoritenstatus bleibt dabei erhalten),
+// damit die Historie nicht mit Wiederholungen vollläuft.
 function addToHistory({ lat, lon, name, sub }) {
-  const list = loadHistory().filter(
-    (e) => Math.abs(e.lat - lat) > 1e-4 || Math.abs(e.lon - lon) > 1e-4,
+  const list = loadHistory();
+  const idx = list.findIndex(
+    (e) => Math.abs(e.lat - lat) <= 1e-4 && Math.abs(e.lon - lon) <= 1e-4,
   );
-  list.unshift({ lat, lon, name, sub });
-  saveHistory(list.slice(0, HISTORY_MAX));
+  const fav = idx >= 0 ? !!list[idx].fav : false;
+  if (idx >= 0) list.splice(idx, 1);
+  list.unshift({ lat, lon, name, sub, fav });
+  saveHistory(capHistory(list));
+}
+
+// Favoritenstatus umschalten, ohne die Kapazitätsgrenze sofort neu
+// durchzusetzen — überzählige Einträge werden erst beim nächsten
+// addToHistory() verdrängt, damit ein Klick nicht nebenbei andere
+// Einträge aus der Liste wirft.
+function setFavorite(lat, lon, fav) {
+  const list = loadHistory();
+  const idx = list.findIndex(
+    (e) => Math.abs(e.lat - lat) <= 1e-4 && Math.abs(e.lon - lon) <= 1e-4,
+  );
+  if (idx < 0) return;
+  list[idx] = { ...list[idx], fav };
+  saveHistory(list);
 }
 
 function historyFeature(entry) {
   return {
     geometry: { coordinates: [entry.lon, entry.lat] },
-    properties: { name: entry.name, city: entry.sub || "" },
+    properties: { name: entry.name, city: entry.sub || "", fav: !!entry.fav },
   };
 }
 
@@ -136,8 +164,28 @@ export function initGeocode({ map, setStart, debounce, el }) {
       const li = document.createElement("li");
       li.dataset.i = String(i);
       if (i === active) li.classList.add("active");
-      li.appendChild(document.createTextNode(name));
-      if (sub) li.appendChild(textEl("span", sub, "geo-sub"));
+      const textWrap = document.createElement("div");
+      textWrap.className = "geo-text";
+      textWrap.appendChild(document.createTextNode(name));
+      if (sub) textWrap.appendChild(textEl("span", sub, "geo-sub"));
+      li.appendChild(textWrap);
+      if (historyMode) {
+        const isFav = !!f.properties.fav;
+        const star = textEl("button", isFav ? "★" : "☆", "geo-star");
+        star.type = "button";
+        star.classList.toggle("fav", isFav);
+        star.setAttribute("aria-label", isFav ? "Favorit entfernen" : "Als Favorit markieren");
+        star.addEventListener("mousedown", (e) => {
+          e.preventDefault(); // keep focus
+          e.stopPropagation(); // nicht als Klick auf den Eintrag werten
+          const [lon, lat] = f.geometry.coordinates;
+          const next = !isFav;
+          setFavorite(lat, lon, next);
+          f.properties.fav = next;
+          render();
+        });
+        li.appendChild(star);
+      }
       li.addEventListener("mousedown", (e) => {
         e.preventDefault(); // keep focus; avoid blur-before-click
         pick(i);

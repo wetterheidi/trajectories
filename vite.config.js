@@ -23,5 +23,25 @@ export default defineConfig({
   optimizeDeps: { exclude: ["meteokit"] },
   // Die Bibliothek liegt außerhalb des Projekt-Roots -- ohne diese Freigabe
   // verweigert der Dev-Server das Ausliefern ihrer Module.
-  server: { fs: { allow: [root, meteokit] } },
+  server: {
+    fs: { allow: [root, meteokit] },
+    // Michaels open-meteo-Server lässt per Caddy-CORS-Allowlist nur die
+    // Produktions-Origin https://trajectories.wetterheidi.de durch, sonst 403
+    // (auch ganz ohne Origin-Header). Im Dev-Betrieb läuft der Request über
+    // diesen Node-Proxy statt direkt aus dem Browser -- daher unterliegt er
+    // keinem Browser-CORS und die Origin lässt sich hier gefahrlos auf die
+    // eigene Produktions-Origin setzen, damit Michaels Server ihn durchlässt.
+    proxy: {
+      "/api-proxy": {
+        target: "https://open-meteo.mah.priv.at",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-proxy/, ""),
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.setHeader("Origin", "https://trajectories.wetterheidi.de");
+          });
+        },
+      },
+    },
+  },
 });
