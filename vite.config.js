@@ -31,6 +31,14 @@ export default defineConfig({
     // diesen Node-Proxy statt direkt aus dem Browser -- daher unterliegt er
     // keinem Browser-CORS und die Origin lässt sich hier gefahrlos auf die
     // eigene Produktions-Origin setzen, damit Michaels Server ihn durchlässt.
+    //
+    // GRAMET fragt pro Säule ALLE Modelllevel × mehrere Variablen in einem
+    // Request ab -- die Query-String allein sprengt Nodes Default-Limit für
+    // Request-Header (8/16 KB), an dem Caddy/nginx in Produktion vorbeigehen
+    // (der Request läuft dort nie durch einen Node-HTTP-Server). Deshalb hebt
+    // der `dev`-Skript-Eintrag in package.json Nodes Limit per
+    // `NODE_OPTIONS=--max-http-header-size` an -- ohne das liefert genau
+    // dieser Proxy-Pfad 431 (Request Header Fields Too Large).
     proxy: {
       "/api-proxy": {
         target: "https://open-meteo.mah.priv.at",
