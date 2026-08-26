@@ -1696,7 +1696,7 @@ el("view3dbtn").addEventListener("click", async () => {
     setStatus("");
   } catch (err) {
     hide3D();
-    setStatus(`3D-Ansicht: ${err.message}`, true);
+    setStatus(`3D-Ansicht: ${describeModuleLoadError(err)}`, true);
   } finally {
     el("view3dbtn").disabled = false;
   }
@@ -1748,7 +1748,7 @@ el("grametbtn").addEventListener("click", async () => {
     setStatus("");
   } catch (err) {
     hideGramet();
-    setStatus(`GRAMET: ${err.message}`, true);
+    setStatus(`GRAMET: ${describeModuleLoadError(err)}`, true);
   } finally {
     el("grametbtn").disabled = false;
   }
@@ -2098,6 +2098,20 @@ function fmtTime(ms) {
 function setStatus(msg, isError = false) {
   el("status").textContent = msg;
   el("status").className = isError ? "error" : "";
+}
+
+// Nach einem Deploy verweisen alte Tabs noch auf inzwischen gelöschte
+// Chunk-Dateien (Vite-Hashes) -- der dynamische Import schlägt dann fehl.
+// Browser formulieren das unterschiedlich, daher robust auf Stichwörter prüfen.
+function isStaleChunkError(err) {
+  return /dynamically imported module|error loading dynamically imported module|importing a module script failed/i
+    .test(err?.message ?? "");
+}
+
+function describeModuleLoadError(err) {
+  return isStaleChunkError(err)
+    ? "Es gibt eine neue Version der App -- bitte Seite neu laden (F5)."
+    : err.message;
 }
 
 loadMeta();
