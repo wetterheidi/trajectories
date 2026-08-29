@@ -960,11 +960,65 @@ function convertHeightsForRefmode(toMode) {
 }
 
 function updateRunButton() {
-  el("run").disabled = state.running || !state.start || !state.meta;
+  // Während der Lauf läuft, bleibt der Knopf aktiv — ein Klick bricht dann ab.
+  el("run").disabled = !state.running && (!state.start || !state.meta);
+}
+
+/** Lässt den Knopf während der Berechnung zum Abbrechen-Knopf werden, statt
+ *  ein zweites Element neben ihm einzublenden. */
+function setRunning(running) {
+  state.running = running;
+  const btn = el("run");
+  btn.textContent = running ? "Abbrechen" : "Trajektorien berechnen";
+  btn.classList.toggle("running", running);
+  updateRunButton();
+}
+
+function isAbort(err) {
+  return err?.name === "AbortError";
+}
+
+/** fraction: null blendet den Balken aus, "indeterminate" zeigt einen
+ *  wandernden Balken (Dauer unbekannt), sonst ein Anteil 0..1. */
+function setProgress(fraction) {
+  const bar = el("progress");
+  if (fraction == null) {
+    bar.hidden = true;
+    bar.classList.remove("indeterminate", "busy");
+    // Inline-Breite wieder freigeben statt auf 0% zu fixieren — sonst
+    // übersteuert sie beim nächsten Lauf die 40%-Breite aus der
+    // .indeterminate-Regel (Inline-Style schlägt Klassenregel), und der
+    // wandernde Balken bleibt unsichtbar auf Breite 0 hängen.
+    el("progressbar").style.width = "";
+    return;
+  }
+  bar.hidden = false;
+  if (fraction === "indeterminate") {
+    bar.classList.add("indeterminate");
+    bar.classList.remove("busy");
+    el("progressbar").style.width = "";
+  } else {
+    // Zwischen den Prozentsprüngen (ein Höhenpunkt kann selbst noch
+    // Gitterdaten nachladen) sonst ein laufendes Streifenmuster statt eines
+    // erstarrt wirkenden Balkens — s. Kommentar bei #progress.busy in style.css.
+    bar.classList.remove("indeterminate");
+    bar.classList.add("busy");
+    el("progressbar").style.width = `${Math.round(fraction * 100)}%`;
+  }
 }
 
 // --- Berechnung -------------------------------------------------------------
-el("run").addEventListener("click", runTrajectories);
+let runAbortCtrl = null;
+
+function cancelRun() {
+  runAbortCtrl?.abort();
+  setStatus("Breche ab …");
+}
+
+el("run").addEventListener("click", () => {
+  if (state.running) cancelRun();
+  else runTrajectories();
+});
 
 /** Convert Trajectories-API GeoJSON back into the app's run objects. */
 function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms, compareMode }) {
@@ -1068,8 +1122,11 @@ async function runTrajectoriesViaApi({
   modelKey, lat, lon, methods, compareMode,
   activeHeights, markerIntervalSec, mode, direction, duration, t0Ms,
 }) {
-  state.running = true;
-  updateRunButton();
+  const abortCtrl = new AbortController();
+  runAbortCtrl = abortCtrl;
+  const timeoutId = setTimeout(() => abortCtrl.abort(), 120000);
+  setRunning(true);
+  setProgress("indeterminate");
   state.layers.clearLayers();
   state.pinLayers.clearLayers();
   state.pinRuns.clear();
@@ -1105,7 +1162,7 @@ async function runTrajectoriesViaApi({
   try {
     const url = `${TRAJECTORY_API}/v1/trajectory?${params}`;
     if (DEBUG) console.debug("[traj] API", url);
-    const resp = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    const resp = await fetch(url, { signal: abortCtrl.signal });
     const body = await resp.text();
     let data;
     try {
@@ -1149,10 +1206,16 @@ async function runTrajectoriesViaApi({
     setStatus(`API: ${runs.length} Trajektorie(n) · ${fmtMs(ms)}`);
   } catch (err) {
     const ms = performance.now() - t0;
-    setStatus(`API-Fehler: ${err.message} · ${fmtMs(ms)}`, true);
+    if (isAbort(err)) {
+      setStatus("Abgebrochen");
+    } else {
+      setStatus(`API-Fehler: ${err.message} · ${fmtMs(ms)}`, true);
+    }
   } finally {
-    state.running = false;
-    updateRunButton();
+    clearTimeout(timeoutId);
+    setRunning(false);
+    setProgress(null);
+    if (runAbortCtrl === abortCtrl) runAbortCtrl = null;
   }
 }
 
@@ -1228,8 +1291,9 @@ async function runTrajectories() {
   const pinSig = [sig, mode, lat, lon].join("|");
   const scrub = pinMode && canReuse && state.live?.pinSig === pinSig;
 
-  state.running = true;
-  updateRunButton();
+  const abortCtrl = new AbortController();
+  runAbortCtrl = abortCtrl;
+  setRunning(true);
   state.layers.clearLayers();
   el("results").innerHTML = "";
   if (!scrub) {
@@ -1255,7 +1319,10 @@ async function runTrajectories() {
     if (canReuse) {
       wf = state.live.wf;
     } else {
-      wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG });
+      // Scrub-Läufe im Live-Modus sind fast immer sehr kurz — der wandernde
+      // Balken lohnt sich nur, wenn tatsächlich ein Windfeld geholt wird.
+      if (!scrub) setProgress("indeterminate");
+      wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG, signal: abortCtrl.signal });
       const tEnd = t0Ms + direction * duration * 3600e3;
       // Im Live-Modus deckt das Windfeld den ganzen Balken ab, damit auch Pins
       // und spätere Höhenwechsel ohne Nachladen bedient werden.
@@ -1270,6 +1337,9 @@ async function runTrajectories() {
           `Zeitfenster ${wf.startDate}…${wf.endDate}`);
       }
     }
+    // Windfeld kann aus einem früheren Lauf (anderer AbortController) stammen
+    // — an das aktuelle Abbruch-Signal koppeln.
+    wf.signal = abortCtrl.signal;
     // Aktuelle Pin-Parameter merken (auch bei wiederverwendetem Windfeld), damit
     // der nächste Lauf Scrub gegen genau diesen Stand prüfen kann.
     if (state.live) state.live.pinSig = pinSig;
@@ -1284,7 +1354,7 @@ async function runTrajectories() {
         windAt: wf.windAt.bind(wf),
         lat0: lat, lon0: lon, target, t0Ms,
         durationHours: duration, direction, gridMeters: model.gridMeters,
-        markerIntervalSec,
+        markerIntervalSec, signal: abortCtrl.signal,
       });
       return { r, color, label, heightM, method, dash };
     };
@@ -1300,6 +1370,8 @@ async function runTrajectories() {
     // Aktive Läufe: entweder mehrere Höhen × eine Methode oder eine Höhe ×
     // mehrere Methoden (oben abgesichert).
     const activeRuns = [];
+    const totalActive = activeHeights.length * methods.length;
+    let doneActive = 0;
     for (const heightM of activeHeights) {
       for (const method of methods) {
         const style = METHODS.find((m) => m.key === method);
@@ -1307,9 +1379,12 @@ async function runTrajectories() {
         try {
           activeRuns.push(await computeOne(heightM, method));
         } catch (err) {
+          if (isAbort(err)) throw err;
           reportError(compareMode ? style.label : fmtHeight(heightM),
             compareMode ? style.color : colorFor(heightM), err);
         }
+        doneActive++;
+        if (!scrub) setProgress(doneActive / totalActive);
       }
     }
 
@@ -1324,6 +1399,7 @@ async function runTrajectories() {
             run = await computeOne(heightM, methods[0]);
             state.pinRuns.set(heightM, run);
           } catch (err) {
+            if (isAbort(err)) throw err;
             reportError(fmtHeight(heightM), colorFor(heightM), err);
             continue;
           }
@@ -1391,10 +1467,15 @@ async function runTrajectories() {
       setStatus("");
     }
   } catch (err) {
-    setStatus(`Fehler: ${err.message} · ${fmtMs(performance.now() - t0)}`, true);
+    if (isAbort(err)) {
+      setStatus("Abgebrochen");
+    } else {
+      setStatus(`Fehler: ${err.message} · ${fmtMs(performance.now() - t0)}`, true);
+    }
   } finally {
-    state.running = false;
-    updateRunButton();
+    setRunning(false);
+    setProgress(null);
+    if (runAbortCtrl === abortCtrl) runAbortCtrl = null;
     if (liveDirty && el("livemode").checked) {
       liveDirty = false;
       setTimeout(liveRun, 0);

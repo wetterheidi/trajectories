@@ -29,6 +29,7 @@ export async function computeTrajectory({
   markerIntervalSec = 3600,
   maxStepSec = 900,
   minStepSec = 60,
+  signal = null,
 }) {
   const intervalMs = markerIntervalSec * 1000;
   const is3d = target.type === "z3d";
@@ -40,6 +41,7 @@ export async function computeTrajectory({
   let status = "ok", reason = null;
 
   while (direction * (tEnd - t) > 1) {
+    if (signal?.aborted) throw abortError();
     const w0 = await windAt(lat, lon, tgt, t);
     if (w0.error) { status = "stopped"; reason = w0.error; break; }
     if (points[0].z == null) points[0].z = w0.zAmsl ?? null;
@@ -105,4 +107,10 @@ function normalizeLon(lon) {
 
 function clamp(x, a, b) {
   return Math.min(b, Math.max(a, x));
+}
+
+function abortError() {
+  const e = new Error("Abgebrochen");
+  e.name = "AbortError";
+  return e;
 }

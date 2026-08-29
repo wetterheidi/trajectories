@@ -16,13 +16,14 @@ const KAPPA = 0.2854; // R/cp trockene Luft
  *   {type:"z3d",      value: m AMSL}                3D mit Modell-w
  */
 export class WindField {
-  constructor(modelKey, { fetchImpl, wVarPrefix = null, debug = false } = {}) {
+  constructor(modelKey, { fetchImpl, wVarPrefix = null, debug = false, signal = null } = {}) {
     this.model = MODELS[modelKey];
     if (!this.model) throw new Error(`Unbekanntes Modell: ${modelKey}`);
     this.modelKey = modelKey;
     this.fetch = fetchImpl || fetch.bind(globalThis);
     this.wVarPrefix = wVarPrefix; // z. B. "vertical_velocity", sobald verfügbar
     this.debug = debug; // Konsolen-Monitor: loggt jeden Interpolationsaufruf
+    this.signal = signal; // AbortSignal: bricht laufende Windfeld-Requests ab
     this.points = new Map();
     this.levels = null;
     this.times = null;
@@ -225,13 +226,16 @@ export class WindField {
   async fetchWithRetry(url, attempts = 3, delayMs = 1500) {
     for (let i = 0; i < attempts; i++) {
       try {
-        const resp = await this.fetch(url);
+        const resp = await this.fetch(url, this.signal ? { signal: this.signal } : undefined);
         if (!resp.ok && resp.status >= 500 && i < attempts - 1) {
           await sleep(delayMs * (i + 1));
           continue;
         }
         return resp;
       } catch (err) {
+        // Abbruch durch den Nutzer nicht als Netzwerkfehler behandeln/erneut
+        // versuchen — sofort durchreichen, damit der Aufrufer sauber stoppt.
+        if (err.name === "AbortError") throw err;
         if (i === attempts - 1) {
           throw new Error("Wetterserver kurzzeitig nicht erreichbar (Verbindung abgelehnt) – bitte erneut versuchen.");
         }
