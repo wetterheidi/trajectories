@@ -11,6 +11,7 @@ import {
 } from "./units.js";
 import { initGeocode } from "./geocode.js";
 import * as cursorSync from "./cursorsync.js";
+import { initGeoman } from "./geoman.js";
 
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
@@ -138,6 +139,9 @@ map.on("baselayerchange", (e) => {
 map.on("overlayadd overlayremove", (e) => {
   if (e.layer === airspaceLayer) persist();
 });
+
+// Geoman-Zeichenwerkzeug (Marker/Linie/Kreis, Peilung/Radius-Labels).
+initGeoman(map);
 
 const state = {
   start: null,
@@ -708,6 +712,8 @@ settingsReady = true;
     // Nur Einzelfinger, nicht auf dem (ziehbaren) Marker selbst.
     if (e.touches.length !== 1) { cancel(); return; }
     if (e.target.closest && e.target.closest(".leaflet-marker-icon")) return;
+    // Nicht auslösen, während Geoman zeichnet/editiert (Konflikt mit dessen Touch-Handling).
+    if (map.pm && (map.pm.globalDrawModeEnabled() || map.pm.globalEditModeEnabled())) return;
     const t = e.touches[0];
     startX = t.clientX; startY = t.clientY;
     cancel();
@@ -734,7 +740,7 @@ function setStart(lat, lon) {
   state.start = { lat, lon };
   el("startpos").textContent = `${lat.toFixed(3)}°N ${lon.toFixed(3)}°E`;
   if (!state.startMarker) {
-    state.startMarker = L.marker([lat, lon], { draggable: true }).addTo(map);
+    state.startMarker = L.marker([lat, lon], { draggable: true, pmIgnore: true }).addTo(map);
     state.startMarker.on("dragend", () => {
       const p = state.startMarker.getLatLng();
       setStart(p.lat, p.lng);

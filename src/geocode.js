@@ -298,6 +298,8 @@ export function initGeocode({ map, setStart, debounce, el }) {
   });
 
   map.on("contextmenu", async (e) => {
+    // Nicht auslösen, während Geoman zeichnet/editiert (sonst Konflikt beim Setzen von Vertices).
+    if (map.pm && (map.pm.globalDrawModeEnabled() || map.pm.globalEditModeEnabled())) return;
     L.DomEvent.preventDefault(e.originalEvent);
     const { lat, lng: lon } = e.latlng;
     setStart(lat, lon);
