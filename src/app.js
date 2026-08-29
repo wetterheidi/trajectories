@@ -1122,9 +1122,10 @@ async function runTrajectoriesViaApi({
     });
     if (!runs.length) throw new Error("API lieferte keine Trajektorien");
 
-    for (const run of runs) drawCasing(run.r, state.layers);
-    for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash, state.layers);
-    for (const run of runs) reportResult(run.r, run.heightM, run.color, run.label);
+    for (const run of runs) attachRunLayer(run, state.layers);
+    for (const run of runs) drawCasing(run.r, run.layer);
+    for (const run of runs) drawTrajectory(run.r, run.color, run.label, run.dash, run.layer);
+    for (const run of runs) reportResult(run);
 
     state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = false;
@@ -1344,17 +1345,19 @@ async function runTrajectories() {
     const pinKey = pinHeights.join(",");
     if (!scrub || pinKey !== state.pinKey) {
       state.pinLayers.clearLayers();
-      for (const run of pinRunList) drawCasing(run.r, state.pinLayers);
-      for (const run of pinRunList) drawTrajectory(run.r, run.color, run.label, run.dash, state.pinLayers);
+      for (const run of pinRunList) attachRunLayer(run, state.pinLayers);
+      for (const run of pinRunList) drawCasing(run.r, run.layer);
+      for (const run of pinRunList) drawTrajectory(run.r, run.color, run.label, run.dash, run.layer);
       state.pinKey = pinKey;
     }
-    for (const run of activeRuns) drawCasing(run.r, state.layers);
-    for (const run of activeRuns) drawTrajectory(run.r, run.color, run.label, run.dash, state.layers);
+    for (const run of activeRuns) attachRunLayer(run, state.layers);
+    for (const run of activeRuns) drawCasing(run.r, run.layer);
+    for (const run of activeRuns) drawTrajectory(run.r, run.color, run.label, run.dash, run.layer);
 
     // Alle sichtbaren Läufe (aktiv + Pins) nach Höhe sortiert — Ergebnisliste,
     // Querschnitt und 3D-Ansicht spiegeln so das gesamte Bild.
     const runs = [...activeRuns, ...pinRunList].sort((a, b) => a.heightM - b.heightM);
-    for (const run of runs) reportResult(run.r, run.heightM, run.color, run.label);
+    for (const run of runs) reportResult(run);
     state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = runs.length === 0;
 
@@ -1417,16 +1420,37 @@ async function makeTarget(wf, lat, lon, heightM, mode, vmotion, t0Ms) {
   return { target: { type: "z3d", value: d.zAmsl }, label: `${fmtHeight(heightM)} ${ref} (3D)` };
 }
 
+// Jede Trajektorie bekommt ihre eigene Leaflet-Layer-Gruppe (Kontur +
+// Linie + Marker), verschachtelt in der übergeordneten Gruppe (state.layers
+// bzw. state.pinLayers). So bleibt das Massen-Löschen per clearLayers() auf
+// der übergeordneten Gruppe erhalten, während einzelne Trajektorien per
+// setRunVisible() unabhängig ein-/ausgeblendet werden können, ohne
+// neu zu rechnen.
+function attachRunLayer(run, parentLayer) {
+  run.layer = L.layerGroup();
+  parentLayer.addLayer(run.layer);
+  if (run.visible === undefined) run.visible = true;
+  if (!run.visible) map.removeLayer(run.layer);
+  return run.layer;
+}
+
+function setRunVisible(run, visible) {
+  run.visible = visible;
+  if (!run.layer) return;
+  if (visible) run.layer.addTo(map);
+  else map.removeLayer(run.layer);
+}
+
 // Weiße Unterlage als Kontrast-Ausgleich auf Kartenkacheln (eigener
 // Durchgang vor allen Farblinien, siehe runTrajectories).
-function drawCasing(r, layer = state.layers) {
+function drawCasing(r, layer) {
   if (r.points.length < 2) return;
   L.polyline(r.points.map((p) => [p.lat, p.lon]), {
     color: "#ffffff", weight: 6, opacity: 0.85, interactive: false,
   }).addTo(layer);
 }
 
-function drawTrajectory(r, color, label, dash = null, layer = state.layers) {
+function drawTrajectory(r, color, label, dash, layer) {
   if (r.points.length < 2) return;
   const latlngs = r.points.map((p) => [p.lat, p.lon]);
   L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash }).addTo(layer)
@@ -1459,13 +1483,25 @@ function drawTrajectory(r, color, label, dash = null, layer = state.layers) {
   }
 }
 
-function reportResult(r, heightM, color, label) {
+function reportResult(run) {
+  const { r, color, label } = run;
   const line = document.createElement("div");
   line.className = "result-line";
+  line.classList.toggle("run-hidden", run.visible === false);
   const end = r.points.at(-1);
   const note = r.status === "stopped"
     ? `gestoppt ${fmtTime(end.tMs)}: ${r.reason}`
     : `bis ${fmtTime(end.tMs)}`;
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.className = "result-toggle";
+  toggle.checked = run.visible !== false;
+  toggle.title = "Trajektorie ein-/ausblenden";
+  toggle.addEventListener("change", () => {
+    setRunVisible(run, toggle.checked);
+    line.classList.toggle("run-hidden", !toggle.checked);
+  });
+  line.appendChild(toggle);
   const chip = document.createElement("span");
   chip.className = "chip";
   if (/^#[0-9a-f]{3,8}$/i.test(color || "")) chip.style.background = color;
