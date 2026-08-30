@@ -302,8 +302,14 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 #results { margin-top: 4px; }
 .result-line { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .result-line .note { color: #52514e; font-size: 12px; }
-.result-toggle { flex: none; cursor: pointer; margin: 0; }
+.result-toggle {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; padding: 2px; margin: 0;
+  color: #52514e; cursor: pointer; line-height: 0;
+}
+.result-toggle:hover { color: #1c5cab; }
 .result-line.run-hidden { opacity: 0.45; }
+.result-line.run-hidden .result-toggle { color: #b3261e; }
 
 #settings { margin-top: 8px; }
 #settings summary { cursor: pointer; font-weight: 600; padding: 2px 0; }

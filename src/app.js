@@ -1570,6 +1570,17 @@ function drawTrajectory(r, color, label, dash, layer) {
   }
 }
 
+// Augen-Icons (offen/durchgestrichen) als Inline-SVG — kein Icon-Font/CDN.
+const EYE_OPEN = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+  '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" ' +
+  'd="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/>' +
+  '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+  '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" ' +
+  'd="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/>' +
+  '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>' +
+  '<line x1="2.5" y1="21.5" x2="21.5" y2="2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
 function reportResult(run) {
   const { r, color, label } = run;
   const line = document.createElement("div");
@@ -1579,14 +1590,20 @@ function reportResult(run) {
   const note = r.status === "stopped"
     ? `gestoppt ${fmtTime(end.tMs)}: ${r.reason}`
     : `bis ${fmtTime(end.tMs)}`;
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
   toggle.className = "result-toggle";
-  toggle.checked = run.visible !== false;
-  toggle.title = "Trajektorie ein-/ausblenden";
-  toggle.addEventListener("change", () => {
-    setRunVisible(run, toggle.checked);
-    line.classList.toggle("run-hidden", !toggle.checked);
+  const syncToggle = (visible) => {
+    toggle.innerHTML = visible ? EYE_OPEN : EYE_OFF;
+    toggle.setAttribute("aria-pressed", String(visible));
+    toggle.title = visible ? "Trajektorie ausblenden" : "Trajektorie einblenden";
+  };
+  syncToggle(run.visible !== false);
+  toggle.addEventListener("click", () => {
+    const visible = !(run.visible !== false);
+    setRunVisible(run, visible);
+    syncToggle(visible);
+    line.classList.toggle("run-hidden", !visible);
   });
   line.appendChild(toggle);
   const chip = document.createElement("span");
