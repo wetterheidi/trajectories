@@ -840,8 +840,7 @@ async function loadMeta() {
     // verfügbaren Zeitraum begrenzt.
     const want = prev ?? Math.round(Date.now() / 3600e3);
     slider.value = Math.min(Math.max(want, +slider.min), +slider.max);
-    el("runinfo").textContent =
-      ` · Lauf ${fmtTime(meta.last_run_initialisation_time * 1000)}, Daten bis ${fmtTime(t1 * 1000)}`;
+    el("runinfo").textContent = ` · Daten bis ${fmtTime(t1 * 1000)}`;
     updateTimeLabel();
     updateReachHint();
     el("status").textContent = "";
@@ -850,7 +849,26 @@ async function loadMeta() {
     el("status").className = "error";
     state.meta = null;
   }
+  updateModelRunHint();
   updateRunButton();
+}
+
+// Infobutton neben der Modellauswahl: zeigt den Initialisierungszeitpunkt
+// des aktuell geladenen Modelllaufs (z. B. "00-UTC-Lauf"), analog zu
+// droneforecast/src/app.js.
+el("model-run-info").addEventListener("click", () => {
+  const hint = el("model-run-hint");
+  const show = hint.hidden;
+  hint.hidden = !show;
+  el("model-run-info").setAttribute("aria-pressed", String(show));
+});
+
+function updateModelRunHint() {
+  const t = state.meta?.runInit;
+  const hint = el("model-run-hint");
+  hint.textContent = Number.isFinite(t)
+    ? `Modelllauf: ${fmtTime(t * 1000)}`
+    : "Modelllauf: nicht verfügbar";
 }
 
 function updateTimeLabel() {

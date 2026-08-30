@@ -20,11 +20,15 @@
     </div>
 
     <label class="row">Modell
-      <select id="model">
-        <option value="icon_eu" selected>ICON-EU (~6,5 km, Europa)</option>
-        <option value="icon_d2">ICON-D2 (~2,2 km, Mitteleuropa)</option>
-      </select>
+      <span class="inline-group">
+        <select id="model">
+          <option value="icon_eu" selected>ICON-EU (~6,5 km, Europa)</option>
+          <option value="icon_d2">ICON-D2 (~2,2 km, Mitteleuropa)</option>
+        </select>
+        <button id="model-run-info" type="button" title="Modelllauf anzeigen" aria-pressed="false">ℹ</button>
+      </span>
     </label>
+    <div class="hint mono" id="model-run-hint" hidden></div>
 
     <div class="row">
       <span class="label" id="pointlabel">Startpunkt</span>
