@@ -159,6 +159,7 @@ const state = {
   layers: L.layerGroup().addTo(map),
   pinRuns: new Map(), // Höhe(m) -> berechneter Run, damit Pins beim Scrubben nicht neu rechnen
   pinKey: "",         // Satz der aktuell gezeichneten Pin-Höhen (für „nur bei Änderung neu zeichnen")
+  runCache: null,     // { pinSig, map }: berechnete Läufe über volle Neuberechnungen hinweg (s. runTrajectories)
   startMarker: null,
   running: false,
   uploadLayers: L.layerGroup().addTo(map), // eigene GPX-Tracks, unabhängig von berechneten Trajektorien
@@ -1312,14 +1313,23 @@ async function runTrajectories() {
   const metExtras = el("metextras").checked;
   const sig = [modelKey, methods.join("+"), t0Ms, duration, direction, metExtras,
     Math.round(lat), Math.round(lon)].join("|");
-  const canReuse = liveMode && state.live?.sig === sig
-    && activeHeights[0] <= state.live.spanTop;
-  // Scrub (Pins behalten) nur, wenn sich wirklich ausschließlich die aktive
-  // Höhe geändert hat. pinSig fasst alle übrigen pfadbestimmenden Größen exakt
-  // (inkl. Höhenbezug und ungerundetem Startpunkt) — sonst wären die Pins zu
-  // anderen Parametern gerechnet als die aktive Linie.
+  // Wie hoch das Windfeld reichen muss, um alle diesmal benötigten Höhen
+  // (aktiv + Pins) abzudecken.
+  const requiredTop = Math.max(...activeHeights, ...pinHeights);
+  const canReuse = state.live?.sig === sig && requiredTop <= state.live.spanTop;
+  // Scrub (Pins behalten, keine Neuzeichnung) nur, wenn sich wirklich
+  // ausschließlich die aktive Höhe geändert hat. pinSig fasst alle übrigen
+  // pfadbestimmenden Größen exakt (inkl. Höhenbezug und ungerundetem
+  // Startpunkt) — sonst wären die Pins zu anderen Parametern gerechnet als
+  // die aktive Linie.
   const pinSig = [sig, mode, lat, lon].join("|");
   const scrub = pinMode && canReuse && state.live?.pinSig === pinSig;
+  // Ergebnis-Cache über volle Neuberechnungen hinweg — unabhängig vom
+  // Live-Modus: eine Höhe+Methode bleibt gültig, solange pinSig unverändert
+  // ist. So kostet eine am Balken neu hinzugefügte Höhe nur sich selbst,
+  // nicht die bereits berechneten Trajektorien (s. computeOne unten).
+  if (state.runCache?.pinSig !== pinSig) state.runCache = { pinSig, map: new Map() };
+  const runCache = state.runCache.map;
 
   const abortCtrl = new AbortController();
   runAbortCtrl = abortCtrl;
@@ -1354,13 +1364,12 @@ async function runTrajectories() {
       if (!scrub) setProgress("indeterminate");
       wf = new WindField(modelKey, { wVarPrefix, debug: DEBUG, signal: abortCtrl.signal });
       const tEnd = t0Ms + direction * duration * 3600e3;
-      // Im Live-Modus deckt das Windfeld den ganzen Balken ab, damit auch Pins
-      // und spätere Höhenwechsel ohne Nachladen bedient werden.
-      const spanTop = liveMode
-        ? Math.max(barMax, ...activeHeights, ...pinHeights)
-        : Math.max(...activeHeights);
+      // Das Windfeld deckt immer den ganzen Balken ab (nicht nur die aktuell
+      // gewählten Höhen), damit auch später hinzugefügte Höhen bis barMax ohne
+      // erneuten Netzwerk-Abruf bedient werden — unabhängig vom Live-Modus.
+      const spanTop = Math.max(barMax, ...activeHeights, ...pinHeights);
       await wf.init(lat, lon, spanTop, Math.min(t0Ms, tEnd), Math.max(t0Ms, tEnd), methods, metExtras);
-      state.live = liveMode ? { wf, sig, spanTop } : null;
+      state.live = { wf, sig, spanTop };
       if (DEBUG) {
         console.debug(`[traj] Modell ${modelKey}, Methoden ${methods.join("+")}, ` +
           `Levelfenster ${wf.levels.at(-1)}–${wf.levels[0]} (${wf.levels.length} Level), ` +
@@ -1374,8 +1383,13 @@ async function runTrajectories() {
     // der nächste Lauf Scrub gegen genau diesen Stand prüfen kann.
     if (state.live) state.live.pinSig = pinSig;
 
-    // Einen Lauf (Höhe × Methode) rechnen.
+    // Einen Lauf (Höhe × Methode) rechnen — oder aus dem Ergebnis-Cache
+    // übernehmen, falls Ort/Zeit/Methode/Modell (pinSig) seit dem letzten
+    // Lauf unverändert sind.
     const computeOne = async (heightM, method) => {
+      const cacheKey = `${heightM}|${method}`;
+      const cached = runCache.get(cacheKey);
+      if (cached) return cached;
       const style = METHODS.find((m) => m.key === method);
       const color = compareMode ? style.color : colorFor(heightM);
       const dash = compareMode ? style.dash : null;
@@ -1386,7 +1400,9 @@ async function runTrajectories() {
         durationHours: duration, direction, gridMeters: model.gridMeters,
         markerIntervalSec, signal: abortCtrl.signal,
       });
-      return { r, color, label, heightM, method, dash };
+      const run = { r, color, label, heightM, method, dash };
+      runCache.set(cacheKey, run);
+      return run;
     };
     // Eine scheiternde Methode/Höhe soll die übrigen nicht mitreißen.
     const reportError = (labelText, color, err) => {
@@ -2122,6 +2138,26 @@ const DOWNLOAD_FORMATS = {
   kml: { ext: "kml", type: "application/vnd.google-earth.kml+xml", build: buildKML },
 };
 
+/** Ortsname aus dem Suchfeld fürs Dateinamen-Slug, wenn dort tatsächlich ein
+ *  gesuchter/gewählter Ort steht (nicht nur eine eingetippte Koordinate oder
+ *  leer) — sonst die Startkoordinate des Laufs (nicht die evtl. inzwischen
+ *  verschobene Markerposition, damit der Name zu den heruntergeladenen Daten
+ *  passt). */
+function downloadPlaceSlug(runs) {
+  const raw = el("geocode")?.value.trim() ?? "";
+  const name = raw && !raw.startsWith("Koordinate") ? raw.split(",")[0].trim() : "";
+  if (name) {
+    const slug = name.normalize("NFKD").replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    if (slug) return slug;
+  }
+  const p0 = runs[0]?.r.points[0];
+  if (!p0) return "";
+  const ns = p0.lat >= 0 ? "N" : "S";
+  const ew = p0.lon >= 0 ? "E" : "W";
+  return `${Math.abs(p0.lat).toFixed(3)}${ns}${Math.abs(p0.lon).toFixed(3)}${ew}`;
+}
+
 el("download").addEventListener("click", () => {
   if (!state.lastRuns) return;
   const fmt = DOWNLOAD_FORMATS[el("downloadfmt").value] ?? DOWNLOAD_FORMATS.geojson;
@@ -2130,7 +2166,9 @@ el("download").addEventListener("click", () => {
   a.href = URL.createObjectURL(blob);
   const stamp = new Date(state.lastRuns.t0Ms).toISOString().slice(0, 16)
     .replace(/[-:]/g, "").replace("T", "_");
-  a.download = `trajektorien_${state.lastRuns.modelKey}_${stamp}Z.${fmt.ext}`;
+  const dir = state.lastRuns.direction > 0 ? "vw" : "rw";
+  const place = downloadPlaceSlug(state.lastRuns.runs);
+  a.download = `trajektorien_${state.lastRuns.modelKey}_${dir}_${place}_${stamp}Z.${fmt.ext}`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
