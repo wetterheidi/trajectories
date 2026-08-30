@@ -143,6 +143,12 @@ map.on("overlayadd overlayremove", (e) => {
 // Geoman-Zeichenwerkzeug (Marker/Linie/Kreis, Peilung/Radius-Labels).
 initGeoman(map);
 
+// Eigene Pane für Trajektorien, oberhalb der Standard-overlayPane (400), in
+// der Geoman seine Formen (Kreis/Linie) zeichnet. So bleiben Trajektorien
+// klick-/hoverbar, auch wenn ein Geoman-Kreis über ihnen liegt.
+map.createPane("trajPane");
+map.getPane("trajPane").style.zIndex = 450;
+
 const state = {
   start: null,
   meta: null, // {t0, t1} Epochensekunden des verfügbaren Zeitraums
@@ -1533,21 +1539,21 @@ function setRunVisible(run, visible) {
 function drawCasing(r, layer) {
   if (r.points.length < 2) return;
   L.polyline(r.points.map((p) => [p.lat, p.lon]), {
-    color: "#ffffff", weight: 6, opacity: 0.85, interactive: false,
+    color: "#ffffff", weight: 6, opacity: 0.85, interactive: false, pane: "trajPane",
   }).addTo(layer);
 }
 
 function drawTrajectory(r, color, label, dash, layer) {
   if (r.points.length < 2) return;
   const latlngs = r.points.map((p) => [p.lat, p.lon]);
-  L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash }).addTo(layer)
+  L.polyline(latlngs, { color, weight: 3, opacity: 1, dashArray: dash, pane: "trajPane" }).addTo(layer)
     .bindTooltip(label, { sticky: true });
 
   for (const m of r.markers) {
     const dir = (Math.atan2(-m.u, -m.v) * 180 / Math.PI + 360) % 360;
     const zLine = Number.isFinite(m.z) ? `<br>${fmtHeight(m.z)} NN` : "";
     const marker = L.circleMarker([m.lat, m.lon], {
-      radius: 4, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1,
+      radius: 4, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1, pane: "trajPane",
     }).addTo(layer).bindTooltip(
       `<div class="marker-tip">${fmtTime(m.tMs)}<br>${label}<br>` +
       `${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°${zLine}` +
@@ -1753,14 +1759,14 @@ el("gpxupload").addEventListener("change", async (e) => {
       // .lon als Fallback für .lng), daher hier ohne Umformatierung.
       for (const ln of lines) {
         count += ln.points.length;
-        L.polyline(ln.points, { color: "#ffffff", weight: 6, opacity: 0.7, interactive: false }).addTo(layer);
-        L.polyline(ln.points, { color, weight: 3, opacity: 0.9, dashArray: "6 4" })
+        L.polyline(ln.points, { color: "#ffffff", weight: 6, opacity: 0.7, interactive: false, pane: "trajPane" }).addTo(layer);
+        L.polyline(ln.points, { color, weight: 3, opacity: 0.9, dashArray: "6 4", pane: "trajPane" })
           .addTo(layer)
           .bindTooltip(escapeHtml(ln.name || file.name), { sticky: true });
       }
       for (const p of points) {
         count += 1;
-        L.circleMarker(p, { radius: 5, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1 })
+        L.circleMarker(p, { radius: 5, color, weight: 2, fillColor: "#ffffff", fillOpacity: 1, pane: "trajPane" })
           .addTo(layer)
           .bindTooltip(escapeHtml(p.name || file.name), { sticky: true });
       }
