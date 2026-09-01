@@ -12,11 +12,17 @@
 </head>
 <body>
   <div id="map"></div>
+  <div id="cursor-readout" class="mono" hidden></div>
 
   <div id="panel">
     <div id="panelhead">
       <h1>Windtrajektorien</h1>
-      <button id="paneltoggle" title="Bedienfeld ein-/ausklappen" aria-expanded="true">▾</button>
+      <div class="head-ctl">
+        <label id="expertlabel" title="Zeigt zusätzliche Einstellungen für den Vergleich von Berechnungsarten">
+          <input type="checkbox" id="expertmode" />Experte
+        </label>
+        <button id="paneltoggle" title="Bedienfeld ein-/ausklappen" aria-expanded="true">▾</button>
+      </div>
     </div>
 
     <label class="row">Modell
@@ -41,24 +47,33 @@
     </div>
     <div class="row">
       <span class="label" id="timeheadlabel">Startzeit <span class="hint">(UTC)</span></span>
-      <span id="timelabel" class="mono">–</span>
+      <span class="inline-group">
+        <span id="timelabel" class="mono">–</span>
+        <button id="nowbtn" type="button" class="chipbtn" title="Auf die aktuelle Uhrzeit setzen" disabled>Jetzt</button>
+      </span>
     </div>
-    <input type="range" id="timeslider" min="0" max="0" step="1" />
 
-    <div class="grid2">
-      <label>Dauer (h)
-        <input type="number" id="duration" min="1" max="120" step="1" value="12" />
-      </label>
-      <label>Richtung
-        <select id="direction">
-          <option value="1" selected>vorwärts</option>
-          <option value="-1">rückwärts</option>
-        </select>
-      </label>
-    </div>
+    <!-- Zeitband: stellt Startzeit, Dauer und Richtung an einem Stück ein.
+         Die drei Bedienelemente darunter bleiben die Quelle der Wahrheit und
+         werden vom Band beschrieben (s. src/timeline.js) -- der Zeitschieber
+         und die Richtung führen kein eigenes Bedienbild mehr, das Dauerfeld
+         steht im Expertenmodus für die genaue Eingabe weiter zur Verfügung. -->
+    <input type="range" id="timeslider" min="0" max="0" step="1" hidden />
+    <select id="direction" hidden>
+      <option value="1" selected>vorwärts</option>
+      <option value="-1">rückwärts</option>
+    </select>
+    <div id="timeline"></div>
     <div id="reachhint" class="hint mono"></div>
 
-    <div id="methodrow">
+    <label class="row" data-expert hidden>
+      <span class="label">Dauer (h) <span class="hint">(genau; sonst am Zeitband)</span></span>
+      <input type="number" id="duration" min="1" max="120" step="1" value="12" />
+    </label>
+
+    <div id="expertnote" class="hint" hidden></div>
+
+    <div id="methodrow" data-expert hidden>
       <div class="label">Methoden <span class="hint">(mehrere = Vergleich am aktiven Höhenpunkt)</span></div>
       <div id="methodlist"></div>
     </div>

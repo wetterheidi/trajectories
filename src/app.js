@@ -12,6 +12,7 @@ import {
 import { initGeocode } from "./geocode.js";
 import * as cursorSync from "./cursorsync.js";
 import { initGeoman } from "./geoman.js";
+import { createTimeline } from "./timeline.js";
 
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
@@ -38,11 +39,16 @@ const MAX_DURATION_API_H = 72;
 function maxDurationH() {
   return el("useapi").checked ? MAX_DURATION_API_H : MAX_DURATION_CLIENT_H;
 }
+// Das Zeitband (src/timeline.js) wird erst nach dem Wiederherstellen der
+// Einstellungen gebaut; bis dahin laufen die Auffrischungen ins Leere.
+let timeline = null;
+
 function syncDurationBounds() {
   const max = maxDurationH();
   const input = el("duration");
   input.max = String(max);
   if (+input.value > max) input.value = String(max);
+  timeline?.refresh();
 }
 
 // --- Einstellungen in localStorage ------------------------------------------
@@ -80,6 +86,7 @@ function persist() {
     methods: selectedMethods(),
     metExtras: el("metextras").checked,
     useApi: el("useapi").checked,
+    expert: el("expertmode").checked,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -142,6 +149,47 @@ map.on("overlayadd overlayremove", (e) => {
 
 // Geoman-Zeichenwerkzeug (Marker/Linie/Kreis, Peilung/Radius-Labels).
 initGeoman(map);
+
+// --- Panel unten links: Koordinaten + Geländehöhe am Mauszeiger -------------
+// Höhe kommt aus derselben DEM90-Route wie die Startpunkt-Geländehöhe
+// (fetchStartElevation), hier aber ohne Modellbezug -- reines DEM, unabhängig
+// vom gewählten Modell. Cache rastert auf ca. 100 m, damit ein langsam
+// wanderender Zeiger nicht bei jedem Pixel neu abfragt.
+const cursorReadout = el("cursor-readout");
+const cursorElevationCache = new Map(); // "lat,lon" (3 Dezimalstellen) -> Höhe(m) | null
+let cursorReadoutSeq = 0;
+
+function cursorElevationKey(lat, lon) {
+  return `${lat.toFixed(3)},${lon.toFixed(3)}`;
+}
+
+function renderCursorReadout(lat, lon, elev) {
+  const elevTxt = Number.isFinite(elev) ? `${Math.round(elev)} m` : "…";
+  cursorReadout.textContent = `${lat.toFixed(5)}°, ${lon.toFixed(5)}° · ${elevTxt} NN`;
+}
+
+const fetchCursorElevation = debounce(async (lat, lon) => {
+  const key = cursorElevationKey(lat, lon);
+  if (cursorElevationCache.has(key)) return;
+  const seq = ++cursorReadoutSeq;
+  try {
+    const params = new URLSearchParams({ latitude: lat.toFixed(5), longitude: lon.toFixed(5) });
+    const d = await (await fetch(`${API_BASE}/v1/elevation?${params}`)).json();
+    const elev = Array.isArray(d.elevation) ? d.elevation[0] : d.elevation;
+    cursorElevationCache.set(key, Number.isFinite(elev) ? elev : null);
+  } catch {
+    // Geländehöhe ist Komfort -- bei Fehler bleibt nur die Koordinate stehen.
+  }
+  if (seq === cursorReadoutSeq) renderCursorReadout(lat, lon, cursorElevationCache.get(key));
+}, 250);
+
+map.on("mousemove", (e) => {
+  const { lat, lng } = e.latlng;
+  cursorReadout.hidden = false;
+  renderCursorReadout(lat, lng, cursorElevationCache.get(cursorElevationKey(lat, lng)));
+  fetchCursorElevation(lat, lng);
+});
+map.on("mouseout", () => { cursorReadout.hidden = true; });
 
 // Eigene Pane für Trajektorien, oberhalb der Standard-overlayPane (400), in
 // der Geoman seine Formen (Kreis/Linie) zeichnet. So bleiben Trajektorien
@@ -526,6 +574,7 @@ for (const m of METHODS) {
   label.querySelector("input").addEventListener("change", () => {
     state.live = null; // andere Methoden brauchen ggf. andere Variablen
     renderBar(); // Ausgrauen/Aktiv-Hinweis hängen am Vergleichsmodus
+    updateExpertNote();
     persist();
     markStale();
   });
@@ -608,6 +657,17 @@ if (["agl", "amsl"].includes(saved.refmode)) el("refmode").value = saved.refmode
 if (["1", "-1"].includes(saved.direction)) el("direction").value = saved.direction;
 if (Number.isFinite(saved.duration)) el("duration").value = saved.duration;
 updateDirectionLabels();
+// Zeitband über den (jetzt ausgeblendeten) Zeitschieber legen. Es schreibt
+// #timeslider, #duration und #direction und feuert deren Ereignisse -- die
+// Logik dahinter bleibt davon unberührt.
+timeline = createTimeline({
+  root: el("timeline"),
+  slider: el("timeslider"),
+  duration: el("duration"),
+  direction: el("direction"),
+  maxDurationH,
+  fmtTime,
+});
 for (const id of ["markerint", "direction", "duration"]) {
   el(id).addEventListener("change", persist);
 }
@@ -667,6 +727,37 @@ if (Array.isArray(saved.methods) && saved.methods.length) {
   }
 }
 applyModeUI();
+
+// --- Expertenmodus -----------------------------------------------------------
+// Blendet die Bedienelemente aus, die für den Regelfall (eine Berechnungsart,
+// Dauer am Zeitband) nicht gebraucht werden. Die Elemente bleiben im DOM und
+// behalten ihre Werte -- ausgeblendet heißt nur unsichtbar, nicht inaktiv.
+function applyExpertUI() {
+  const on = el("expertmode").checked;
+  for (const node of document.querySelectorAll("[data-expert]")) node.hidden = !on;
+  updateExpertNote();
+}
+
+/** Macht im Grundmodus sichtbar, was dort verborgen eingestellt ist -- sonst
+ *  rechnete die App stillschweigend mit mehreren Methoden weiter. */
+function updateExpertNote() {
+  const note = el("expertnote");
+  const extra = selectedMethods().filter((k) => k !== "height");
+  const show = !el("expertmode").checked && extra.length > 0;
+  note.hidden = !show;
+  if (show) {
+    const names = extra.map((k) => METHODS.find((m) => m.key === k)?.label ?? k);
+    note.textContent =
+      `Zusätzliche Berechnungsarten aktiv: ${names.join(", ")} — im Expertenmodus änderbar.`;
+  }
+}
+
+if (saved.expert) el("expertmode").checked = true;
+applyExpertUI();
+el("expertmode").addEventListener("change", () => {
+  applyExpertUI();
+  persist();
+});
 
 if (saved.metExtras) el("metextras").checked = true;
 if (DEV_API) {
@@ -844,6 +935,7 @@ async function loadMeta() {
     el("runinfo").textContent = ` · Daten bis ${fmtTime(t1 * 1000)}`;
     updateTimeLabel();
     updateReachHint();
+    timeline?.refresh();
     el("status").textContent = "";
   } catch (err) {
     el("status").textContent = `Modelllauf-Info nicht erreichbar: ${err.message}`;
@@ -852,6 +944,7 @@ async function loadMeta() {
   }
   updateModelRunHint();
   updateRunButton();
+  el("nowbtn").disabled = !state.meta;
 }
 
 // Infobutton neben der Modellauswahl: zeigt den Initialisierungszeitpunkt
@@ -909,6 +1002,7 @@ function syncSliderBounds() {
   slider.max = Math.floor(forwardEdgeSec() / 3600);
   slider.value = Math.min(Math.max(prev, +slider.min), +slider.max);
   updateTimeLabel();
+  timeline?.refresh();
 }
 
 // Vorab-Hinweis, wie weit die Daten in der gewählten Richtung ab dem
@@ -938,6 +1032,19 @@ el("timeslider").addEventListener("input", () => {
   markStale();
 });
 el("timeslider").addEventListener("change", persist);
+
+// „Jetzt"-Knopf neben der Startzeit: setzt nur den Zeitpunkt, Dauer und
+// Richtung bleiben unangetastet -- feuert dieselben Ereignisse wie ein
+// Ziehen am Zeitband, also identisches Verhalten (Speichern, Hinweis,
+// „veraltet"-Markierung).
+el("nowbtn").addEventListener("click", () => {
+  const slider = el("timeslider");
+  const want = Math.round(Date.now() / 3600e3);
+  slider.value = String(Math.min(Math.max(want, +slider.min), +slider.max));
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  slider.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
 el("duration").addEventListener("input", () => { updateReachHint(); markStale(); });
 el("direction").addEventListener("change", () => {
   updateDirectionLabels();
@@ -1954,6 +2061,13 @@ function grametData() {
 function hideGramet() {
   el("gramet").hidden = true;
   el("grametbtn").textContent = "GRAMET (aktive Höhe)";
+  // Schließen gibt den Knopf immer sofort frei -- auch wenn gerade noch ein
+  // Öffnen läuft (langsamer/hängender Server-Request beim Laden der Säulen,
+  // s. gramet.js `fetchGridForPath`). Sonst bliebe der Knopf bis zum Ende
+  // dieser Anfrage (im Extremfall sehr lange) deaktiviert, obwohl das Panel
+  // längst zu ist -- einzig eine Neuberechnung setzte ihn bislang unabhängig
+  // davon zurück.
+  el("grametbtn").disabled = false;
   // Ohne Chart gibt es nichts zu synchronisieren -- und der Kartencursor soll
   // nicht auf eine Strecke zeigen, die niemand mehr gegenüberstellt.
   cursorSync.clearPath();
@@ -1978,8 +2092,13 @@ el("grametbtn").addEventListener("click", async () => {
     grametMod.setStale(stale);
     closeOtherOverlays("gramet"); // s. o.: erst nach dem Laden
     await grametMod.show(grametData());
-    el("grametbtn").textContent = "GRAMET schließen";
-    setStatus("");
+    // Während des (evtl. langsamen) Ladens kann das Panel über hideGramet()
+    // bereits wieder geschlossen worden sein (× im Panel oder erneuter Klick)
+    // -- dann nicht den Schließen-Text nachträglich wieder aufsetzen.
+    if (!el("gramet").hidden) {
+      el("grametbtn").textContent = "GRAMET schließen";
+      setStatus("");
+    }
   } catch (err) {
     hideGramet();
     setStatus(`GRAMET: ${describeModuleLoadError(err)}`, true);

@@ -24,8 +24,34 @@ html, body {
   padding: 12px 14px;
 }
 
+#cursor-readout {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 1000;
+  background: rgba(252, 252, 251, 0.96);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #0b0b0b;
+  pointer-events: none;
+}
+
 #panelhead { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; }
 #panel h1 { font-size: 16px; margin: 0; }
+.head-ctl { display: flex; align-items: center; gap: 6px; }
+#expertlabel {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: #52514e; cursor: pointer; white-space: nowrap;
+}
+#expertlabel input { margin: 0; }
+
+/* Grundmodus: alles mit data-expert ist ausgeblendet (JS setzt das
+   hidden-Attribut, s. applyExpertUI in app.js). */
+[data-expert][hidden] { display: none; }
+#expertnote[hidden] { display: none; }
+#expertnote { margin: 2px 0 6px; }
 #paneltoggle {
   display: none;
   border: none;
@@ -47,6 +73,20 @@ html, body {
 #model-run-info:hover { color: #0b0b0b; }
 #model-run-info[aria-pressed="true"] { color: #1f4e79; }
 .mono { font-variant-numeric: tabular-nums; }
+
+.chipbtn {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border: 1px solid #c9c8c2;
+  border-radius: 9px;
+  background: #fff;
+  color: #1f4e79;
+  cursor: pointer;
+}
+.chipbtn:hover:not(:disabled) { background: #eef4fb; }
+.chipbtn:disabled { color: #c9c8c2; cursor: default; }
 
 select, input[type="number"], input[type="search"] {
   font: inherit;
@@ -115,6 +155,140 @@ select, input[type="number"], input[type="search"] {
 #geocode-results .geo-hist-head:hover { background: #faf9f6; }
 
 input[type="range"] { width: 100%; margin: 4px 0 8px; }
+#timeslider[hidden] { display: none; }
+
+/* --- Zeitband: Startzeit (eckiger Griff), Dauer und Richtung (runder
+   Endgriff) an einer gemeinsamen Achse. Logik in src/timeline.js. --- */
+#timeline { margin: 4px 0 6px; }
+.tl-track {
+  position: relative;
+  height: 30px;
+  margin: 0 7px 9px;      /* Platz, damit die Randgriffe nicht überstehen */
+  touch-action: none;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.tl-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid #c9c8c2;
+  border-radius: 5px;
+  background: #fff;
+}
+.tl-day {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 5px;
+  font-size: 11px;
+  color: #52514e;
+  background: #dfe6ef;
+  border-left: 1px solid #fff;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.tl-day.alt { background: #ccd8e6; }
+.tl-tick-day { font-weight: 600; border-left-color: #fff; }
+.tl-day:first-child { border-left: none; }
+/* Feinraster (3 bzw. 6 h), erscheint erst im gezoomten Ausschnitt. */
+.tl-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 3px;
+  border-left: 1px solid rgba(255, 255, 255, .8);
+  font-size: 10px;
+  color: #52514e;
+}
+/* Flugdauer: schraffiertes Band zwischen den beiden Griffen. */
+.tl-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg, rgba(235, 104, 52, .38) 0 4px, rgba(235, 104, 52, .12) 4px 8px);
+  border-left: 1px solid rgba(235, 104, 52, .8);
+  border-right: 1px solid rgba(235, 104, 52, .8);
+  pointer-events: none;
+}
+.tl-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #d33;
+  pointer-events: none;
+}
+.tl-now[hidden] { display: none; }
+
+.tl-handle {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 18px;           /* Greiffläche -- bewusst breiter als der Strich */
+  margin-left: -9px;
+  cursor: ew-resize;
+}
+.tl-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 5px;
+  margin-left: -2.5px;
+  border: 1px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+.tl-handle:focus-visible { outline: 2px solid #1f4e79; outline-offset: 2px; }
+.tl-h-start::before { background: #1c5cab; border-radius: 2px; }
+.tl-h-end::before { background: #eb6834; border-radius: 3px; }
+/* Der Griff läge außerhalb des Ausschnitts und klebt am Rand. */
+.tl-handle.tl-clipped::before {
+  opacity: .8;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 1px 3px rgba(0, 0, 0, .35);
+}
+
+.tl-foot { display: flex; align-items: center; gap: 6px; }
+.tl-step {
+  font: inherit;
+  line-height: 1;
+  padding: 1px 8px;
+  border: 1px solid #c9c8c2;
+  border-radius: 5px;
+  background: #fff;
+  color: #0b0b0b;
+  cursor: pointer;
+}
+.tl-step:hover:not(:disabled) { background: #eef4fb; }
+.tl-step:disabled { color: #c9c8c2; cursor: default; }
+.tl-readout { font-size: 12px; color: #52514e; }
+
+/* Kleine Legende: welcher Griff ist welcher. */
+.tl-key {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #52514e;
+  white-space: nowrap;
+}
+.tl-key i { width: 9px; height: 9px; flex: none; }
+.tl-key i + * { margin-right: 4px; }
+.tl-key-start { background: #1c5cab; border-radius: 2px; }
+.tl-key-end { background: #eb6834; border-radius: 50%; margin-left: 5px; }
+.tl-empty .tl-handle, .tl-empty .tl-span { display: none; }
+.tl-empty .tl-track { cursor: default; }
+
+/* Zahlenfeld in einer .row-Zeile (Dauer im Expertenmodus). */
+.row > input[type="number"] { width: 5.5em; }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .grid2 label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; }
@@ -598,6 +772,16 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   .bar-edit { width: 68px; font-size: 16px; }
   .bar-rm { font-size: 18px; padding: 2px 8px; opacity: 1; }
   input[type="range"] { height: 28px; }
+
+  /* Zeitband: größere Griffe und Schrittknöpfe für den Finger. */
+  .tl-track { height: 38px; margin: 0 11px 10px; }
+  .tl-handle { width: 30px; margin-left: -15px; top: -4px; bottom: -4px; }
+  .tl-handle::before { width: 7px; margin-left: -3.5px; }
+  .tl-step { padding: 6px 14px; font-size: 16px; }
+  .tl-readout { font-size: 13px; }
+  #expertlabel { font-size: 14px; }
+  #expertlabel input { width: 20px; height: 20px; }
+
   #methodlist { grid-template-columns: 1fr; }
   #methodlist input[type="checkbox"], #livemode, #metextras {
     width: 20px;
