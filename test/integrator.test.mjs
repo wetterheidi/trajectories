@@ -28,14 +28,17 @@ function distMeters(lat1, lon1, lat2, lon2) {
   const d = distMeters(45, 10, last.lat, last.lon);
   check("Homogener Wind: Distanz 216 km", Math.abs(d - 216000) < 500, `d=${(d / 1000).toFixed(1)} km`);
   check("Homogener Wind: keine Breitenänderung", Math.abs(last.lat - 45) < 1e-6, `lat=${last.lat}`);
-  check("Homogener Wind: 6 Stundenmarken", r.markers.length === 6, `n=${r.markers.length}`);
+  // 6 Intervall-Marken (1h..6h) + 1 Marke am Startzeitpunkt selbst -- die
+  // fehlte sonst, während die Höhenkurve (`points[0]`) ihn schon zeigt.
+  check("Homogener Wind: 7 Marken (inkl. Start)", r.markers.length === 7, `n=${r.markers.length}`);
+  check("Homogener Wind: erste Marke am Start", r.markers[0]?.tMs === 0, `tMs=${r.markers[0]?.tMs}`);
 
   // Markenabstand 30 min -> 12 Marken; Marken exakt auf Vielfachen ab Start.
   const r30 = await computeTrajectory({
     windAt, lat0: 45, lon0: 10, target: H1500, t0Ms: 900e3,
     durationHours: 6, direction: 1, gridMeters: 6500, markerIntervalSec: 1800,
   });
-  check("Markenabstand 30 min: 12 Marken", r30.markers.length === 12, `n=${r30.markers.length}`);
+  check("Markenabstand 30 min: 13 Marken (inkl. Start)", r30.markers.length === 13, `n=${r30.markers.length}`);
   const offGrid = r30.markers.some((m) => Math.abs((m.tMs - 900e3) % 1800e3) > 1);
   check("Markenabstand: Marken auf Startzeit-Raster", !offGrid);
 }
@@ -101,6 +104,7 @@ function distMeters(lat1, lon1, lat2, lon2) {
   const zEnd = r.points.at(-1).z;
   check("3D: Endhöhe 4600 m", Math.abs(zEnd - 4600) < 1, `z=${zEnd?.toFixed(1)}`);
   check("3D: Marken tragen Höhe", r.markers.every((m) => Number.isFinite(m.z)));
+  check("3D: Marken tragen w", r.markers.every((m) => m.w === 0.5), `w=${r.markers[0]?.w}`);
 
   // Höhenabhängige Scherung: 3D-Lauf rückwärts kehrt zum Start zurück.
   const shear = async (lat, lon, tg) => ({

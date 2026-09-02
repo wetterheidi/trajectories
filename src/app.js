@@ -4,7 +4,6 @@ import {
 } from "./config.js";
 import { WindField } from "./windfield.js";
 import { computeTrajectory } from "./integrator.js";
-import { renderCrossSection } from "./crosssection.js";
 import {
   setUnits, unitState, fmtHeight, fmtWind, heightUnit,
   heightToDisplay, heightFromDisplay, heightSliderCfg,
@@ -221,13 +220,18 @@ const state = {
 // Höhe verglichen wird.
 const heightColors = new Map();
 let activeHeight = null;
+// Methodenvergleich: manuelle Auswahl im Trajektorienverlauf-Panel, wenn an
+// der aktiven Höhe mehrere Methoden vorliegen (s. `syncAltProfileMethodSelect()`
+// weiter unten). `null` = automatische Priorität wie bisher (METHODS-Reihenfolge).
+let altProfileMethodOverride = null;
 const bar = el("heightbar");
 
-// Lazy geladenes GRAMET-Modul (s. ganz unten). Hier oben deklariert, weil
-// `updateHeightContext()` schon während des Modul-Aufbaus läuft und den Wert
-// abfragt — eine Deklaration erst am Verwendungsort läge dann noch in der
-// temporalen Todeszone.
+// Lazy geladene GRAMET-/Vertikalprofil-Module (s. ganz unten). Hier oben
+// deklariert, weil `updateHeightContext()` schon während des Modul-Aufbaus
+// läuft und die Werte abfragt — eine Deklaration erst am Verwendungsort läge
+// dann noch in der temporalen Todeszone.
 let grametMod = null;
+let altProfileMod = null;
 
 // --- „Veraltet“: Anzeigen passen nicht mehr zu den Einstellungen ------------
 // Karte, Ergebnisliste, Querschnitt, 3D-Ansicht und GRAMET zeigen immer den
@@ -242,9 +246,10 @@ let stale = false;
 function applyStale() {
   el("run").classList.toggle("stale", stale);
   el("run").textContent = stale ? "Trajektorien neu berechnen" : "Trajektorien berechnen";
-  el("xsec-stale").hidden = !stale;
+  el("altprofile-stale").hidden = !stale;
   el("v3d-stale").hidden = !stale;
   grametMod?.setStale(stale);
+  altProfileMod?.setStale(stale);
 }
 
 function markStale() {
@@ -482,6 +487,18 @@ bar.addEventListener("pointerup", () => {
   drag = null;
 });
 
+/** Aktive Höhe wechseln — gemeinsamer Pfad für Balken-Klick UND das
+ *  Höhen-Auswahlfeld im Vertikalprofil-Kopf (s. `#altprofile-height`). */
+function activateHeight(m) {
+  if (m === activeHeight) return;
+  activeHeight = m;
+  altProfileMethodOverride = null; // gilt nur für die vorige Höhe
+  renderBar();
+  updateHeightContext();
+  persist();
+  maybeLive();
+}
+
 // Beschriftungsspalte: × entfernt den Punkt; Klick auf eine noch nicht aktive
 // Zeile aktiviert sie und fokussiert das Editierfeld.
 el("heightbar-labels").addEventListener("click", (e) => {
@@ -491,14 +508,22 @@ el("heightbar-labels").addEventListener("click", (e) => {
   if (!row) return;
   const m = +row.dataset.m;
   if (m === activeHeight) return; // schon aktiv → nicht neu rendern (Fokus behalten)
-  activeHeight = m;
-  renderBar();
-  updateHeightContext();
-  persist();
-  maybeLive();
+  activateHeight(m);
   const edit = el("heightbar-labels").querySelector(".bar-labelrow.active .bar-edit");
   if (edit) { edit.focus(); edit.select(); }
 });
+
+/** Höhen-Auswahl im Vertikalprofil-Kopf: Optionsliste + Auswahl mit der
+ *  aktiven Höhe synchron halten. Läuft nach jeder Neuberechnung (neue Höhen
+ *  möglich) und nach jedem Höhenwechsel (nur der Wert ändert sich). */
+function syncAltProfileHeightSelect() {
+  const sel = el("altprofile-height");
+  const heights = [...new Set((state.altProfile?.runs ?? []).map((r) => r.heightM))].sort((a, b) => a - b);
+  const html = heights.map((m) => `<option value="${m}">${fmtHeight(m)}</option>`).join("");
+  if (sel.innerHTML !== html) sel.innerHTML = html;
+  if (activeHeight != null) sel.value = String(activeHeight);
+}
+el("altprofile-height").addEventListener("change", (e) => activateHeight(+e.target.value));
 
 // Editierfeld der aktiven Höhe: bei Enter/Verlassen den Wert übernehmen.
 el("heightbar-labels").addEventListener("change", (e) => {
@@ -707,9 +732,11 @@ function onUnitsChange() {
   setUnits({ height: el("unitheight").value, wind: el("unitwind").value });
   renderBar();
   updateHeightContext();
-  if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
-  // Die Komponentenbibliothek führt ihren eigenen Einheiten-Zustand.
+  // Die Komponentenbibliothek führt ihren eigenen Einheiten-Zustand; das
+  // Vertikalprofil liest denselben Singleton wie diese Datei und muss nur
+  // zum Neuzeichnen angestoßen werden (s. altitudeprofile.js `syncUnits`).
   grametMod?.syncUnits({ height: unitState.height, wind: unitState.wind });
+  altProfileMod?.syncUnits();
   persist();
 }
 el("unitheight").addEventListener("change", onUnitsChange);
@@ -756,6 +783,7 @@ if (saved.expert) el("expertmode").checked = true;
 applyExpertUI();
 el("expertmode").addEventListener("change", () => {
   applyExpertUI();
+  syncAltProfileMethodSelect(); // Methodenauswahl im Panel-Kopf hängt daran
   persist();
 });
 
@@ -904,10 +932,14 @@ function updateHeightContext() {
   } else {
     hint.textContent = `Aktiv: ${fmtHeight(h)} NN ≈ ${fmtHeight(h - elev)} über Grund ${ort}`;
   }
-  // Sammelstelle aller Änderungen der aktiven Höhe — ein offenes GRAMET zeigt
-  // damit immer den Pfad der gerade aktiven Höhe. Schon geholte Gitter liegen
-  // im Modul-Cache, ein Hin-und-Her kostet also kein Netzwerk.
+  // Sammelstelle aller Änderungen der aktiven Höhe — ein offenes GRAMET/
+  // Vertikalprofil zeigt damit immer den Pfad der gerade aktiven Höhe. Schon
+  // geholte Gitter liegen im Modul-Cache, ein Hin-und-Her kostet also kein
+  // Netzwerk.
   refreshGramet();
+  refreshAltProfile();
+  syncAltProfileHeightSelect();
+  syncAltProfileMethodSelect();
 }
 
 // --- Zeitschieber aus meta.json des gewählten Modells -----------------------
@@ -1234,6 +1266,7 @@ function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms, com
           tMs: mp.time ? Date.parse(mp.time) : points[0].tMs,
           u, v, met,
           heightAglM: Number.isFinite(mp.height_agl_m) ? mp.height_agl_m : null,
+          w: Number.isFinite(mp.vertical_velocity_ms) ? mp.vertical_velocity_ms : null,
         };
       });
     const rawTerrain = Array.isArray(p.terrain_m) ? p.terrain_m : null;
@@ -1273,12 +1306,12 @@ async function runTrajectoriesViaApi({
   state.pinRuns.clear();
   state.pinKey = "";
   el("results").innerHTML = "";
-  // Download/Querschnitt/3D/GRAMET NICHT hier schon abschalten und
-  // lastRuns/xsec NICHT hier schon verwerfen: bricht die Anfrage ab (Timeout,
-  // Server-Fehler), sollen die vorigen, noch gültigen Ergebnisse bedienbar
-  // bleiben statt die Bedienelemente ohne Wiederherstellungsweg zu sperren
-  // (erst der Erfolgspfad unten ersetzt sie).
-  el("xsec").hidden = true;
+  // Download/Vertikalprofil/3D/GRAMET NICHT hier schon abschalten und
+  // lastRuns/altProfile NICHT hier schon verwerfen: bricht die Anfrage ab
+  // (Timeout, Server-Fehler), sollen die vorigen, noch gültigen Ergebnisse
+  // bedienbar bleiben statt die Bedienelemente ohne Wiederherstellungsweg zu
+  // sperren (erst der Erfolgspfad unten ersetzt sie).
+  el("altprofile").hidden = true;
   state.live = null;
   setStatus("API: lade Trajektorien …");
 
@@ -1327,8 +1360,8 @@ async function runTrajectoriesViaApi({
 
     state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = false;
-    // Querschnitt: terrain_m from API (model orography along each path).
-    state.xsec = {
+    // Vertikalprofil: terrain_m from API (model orography along each path).
+    state.altProfile = {
       runs: runs.map((run) => ({
         ...run,
         terrain: run.terrain || run.r.points.map(() => null),
@@ -1339,10 +1372,13 @@ async function runTrajectoriesViaApi({
     };
     const g0 = runs[0]?.terrain?.find((g) => Number.isFinite(g));
     if (Number.isFinite(g0)) state.startElevation = g0;
-    el("xsecbtn").disabled = runs.length === 0;
+    el("altprofilebtn").disabled = runs.length === 0;
     el("view3dbtn").disabled = !view3dAvailable();
     el("grametbtn").disabled = runs.length === 0;
     refreshGramet();
+    refreshAltProfile();
+    syncAltProfileHeightSelect();
+    syncAltProfileMethodSelect();
     clearStale();
     setStatus(`API: ${runs.length} Trajektorie(n) · ${fmtMs(ms)}`);
   } catch (err) {
@@ -1452,13 +1488,13 @@ async function runTrajectories() {
     state.pinRuns.clear();
     state.pinKey = "";
   }
-  // Download/Querschnitt/3D/GRAMET NICHT hier schon abschalten und
-  // lastRuns/xsec NICHT hier schon verwerfen (s. gleiche Begründung in
+  // Download/Vertikalprofil/3D/GRAMET NICHT hier schon abschalten und
+  // lastRuns/altProfile NICHT hier schon verwerfen (s. gleiche Begründung in
   // runTrajectoriesViaApi oben): scheitert der Lauf (z. B. Windfeld-Abruf),
   // bleiben die vorigen, noch gültigen Ergebnisse bedienbar statt die
   // Bedienelemente ohne Wiederherstellungsweg zu sperren.
-  const xsecWasOpen = !el("xsec").hidden;
-  el("xsec").hidden = true;
+  const altProfileWasOpen = !el("altprofile").hidden;
+  el("altprofile").hidden = true;
   setStatus("Berechne …");
   const t0 = performance.now();
 
@@ -1597,15 +1633,15 @@ async function runTrajectories() {
     for (const run of activeRuns) drawTrajectory(run.r, run.color, run.label, run.dash, run.layer);
 
     // Alle sichtbaren Läufe (aktiv + Pins) nach Höhe sortiert — Ergebnisliste,
-    // Querschnitt und 3D-Ansicht spiegeln so das gesamte Bild.
+    // Vertikalprofil und 3D-Ansicht spiegeln so das gesamte Bild.
     const runs = [...activeRuns, ...pinRunList].sort((a, b) => a.heightM - b.heightM);
     for (const run of runs) reportResult(run);
     state.lastRuns = { runs, modelKey, mode, t0Ms, duration, direction };
     el("download").disabled = runs.length === 0;
 
-    // Querschnitt: Modellgelände entlang jedes Pfades aus dem Punkt-Cache.
+    // Vertikalprofil: Modellgelände entlang jedes Pfades aus dem Punkt-Cache.
     // Im Vergleichsmodus als Overlay (ein Streifen, Gelände der Referenz).
-    state.xsec = {
+    state.altProfile = {
       runs: runs.map((run) => ({
         ...run,
         terrain: run.r.points.map((p) => wf.elevationAt(p.lat, p.lon)),
@@ -1614,17 +1650,20 @@ async function runTrajectories() {
       direction,
       overlay: compareMode,
     };
-    // Querschnitt standardmäßig zu — nur der Knopf wird aktiv. Im
-    // Live-Modus bleibt ein geöffneter Querschnitt offen und läuft mit.
-    el("xsecbtn").disabled = runs.length === 0;
-    if (liveMode && xsecWasOpen && runs.length) showCrossSection(true);
+    // Vertikalprofil standardmäßig zu — nur der Knopf wird aktiv. Im
+    // Live-Modus bleibt ein geöffnetes Profil offen und läuft mit.
+    el("altprofilebtn").disabled = runs.length === 0;
+    if (liveMode && altProfileWasOpen && runs.length) showAltProfile(true);
     // Offene 3D-Ansicht läuft mit (Live-Modus, Neuberechnung).
     el("view3dbtn").disabled = !view3dAvailable();
     if (view3dMod && !el("view3d").hidden) view3dMod.update(view3dData());
-    // Offenes GRAMET ebenso — die neuen Läufe sind neue Objekte, der
-    // Gitter-Cache im Modul greift also nur für unveränderte Pins.
+    // Offenes GRAMET/Vertikalprofil ebenso — die neuen Läufe sind neue
+    // Objekte, die Modul-Caches greifen also nur für unveränderte Pins.
     el("grametbtn").disabled = runs.length === 0;
     refreshGramet();
+    refreshAltProfile();
+    syncAltProfileHeightSelect();
+    syncAltProfileMethodSelect();
     clearStale();
     // Scrub-Läufe sind sehr kurz und häufig — Zeit nur bei Full-Runs zeigen.
     if (!scrub) {
@@ -1952,34 +1991,15 @@ function refreshView3dForGpx() {
 }
 
 // --- Overlays: immer nur eines ----------------------------------------------
-// Querschnitt, 3D-Ansicht und GRAMET liegen alle über der Kartenfläche und
+// Vertikalprofil, 3D-Ansicht und GRAMET liegen alle über der Kartenfläche und
 // überdecken einander (das GRAMET zuoberst, s. z-index in style.css). Parallel
 // geöffnet ergibt das keine zwei Ansichten, sondern eine sichtbare und eine
 // vergessene -- wie in droneforecast (dort `closeProductOverlays()`) schließt
 // deshalb jedes Öffnen die anderen.
 function closeOtherOverlays(keep) {
-  if (keep !== "xsec" && !el("xsec").hidden) showCrossSection(false);
+  if (keep !== "altprofile" && !el("altprofile").hidden) hideAltProfile();
   if (keep !== "view3d" && !el("view3d").hidden) hide3D();
   if (keep !== "gramet" && !el("gramet").hidden) hideGramet();
-}
-
-// --- Querschnitt ------------------------------------------------------------
-function showCrossSection(show) {
-  // Im Aufklappen, nicht erst im Knopf-Handler: der Querschnitt geht im
-  // Live-Modus auch von selbst wieder auf (s. `xsecWasOpen`).
-  if (show) closeOtherOverlays("xsec");
-  el("xsec").hidden = !show;
-  el("xsecbtn").textContent = show ? "Querschnitt ausblenden" : "Querschnitt anzeigen";
-  if (show && state.xsec) {
-    // Ein Streifen je Trajektorie; im Overlay (Methodenvergleich) einer.
-    const n = state.xsec.overlay ? 2 : state.xsec.runs.length;
-    const h = Math.min(110 * n + 62, Math.round(window.innerHeight * 0.55));
-    el("xsec").style.height = `${Math.max(h, 190)}px`;
-    el("xsec-hint").textContent = state.xsec.overlay
-      ? "Höhe über NN · Gelände entlang des Referenzpfads"
-      : "Höhe über NN · Gelände entlang des jeweiligen Pfades";
-    renderCrossSection(el("xsec-body"), state.xsec);
-  }
 }
 
 // --- Mobiles Bedienfeld (Bottom-Sheet, ein-/ausklappbar) --------------------
@@ -1991,12 +2011,6 @@ function setPanelCollapsed(collapsed) {
 el("paneltoggle").addEventListener("click", () =>
   setPanelCollapsed(!el("panel").classList.contains("collapsed")));
 
-el("xsecbtn").addEventListener("click", () => showCrossSection(el("xsec").hidden));
-el("xsec-close").addEventListener("click", () => showCrossSection(false));
-window.addEventListener("resize", () => {
-  if (!el("xsec").hidden && state.xsec) renderCrossSection(el("xsec-body"), state.xsec);
-});
-
 // --- 3D-Ansicht (Cesium, lazy geladen) --------------------------------------
 let view3dMod = null;
 
@@ -2007,14 +2021,14 @@ function view3dAvailable() {
 }
 
 // Modellorographie am Start für den Höhenabgleich Geoid vs. Ellipsoid;
-// die Geländewerte entlang des Pfads liegen im Querschnitts-Zustand vor.
+// die Geländewerte entlang des Pfads liegen im Vertikalprofil-Zustand vor.
 // gpx: eigene Tracks (state.uploads) zur Mitanzeige, unabhängig von den
 // berechneten Läufen.
 function view3dData() {
   return {
     runs: state.lastRuns?.runs ?? [],
     start: state.start,
-    modelElev: state.xsec?.runs?.[0]?.terrain?.[0] ?? state.startElevation,
+    modelElev: state.altProfile?.runs?.[0]?.terrain?.[0] ?? state.startElevation,
     // Namen aus der GPX-Datei sind Fremddaten und laufen in Cesiums HTML-
     // InfoBox -- hier (einmalig) escapen, roh bleiben sie nur in state.uploads
     // für die 2D-Tooltips, die selbst beim Binden escapen.
@@ -2124,6 +2138,111 @@ el("grametbtn").addEventListener("click", async () => {
 });
 // Die Web Component meldet ihren eigenen ×-Knopf nach außen (composed).
 el("gramet").addEventListener("close", hideGramet);
+
+// --- Vertikalprofil (Komponentenbibliothek, lazy geladen) -------------------
+// Zeigt alle Wetterparameter exakt auf Höhe EINER Trajektorie — der der
+// aktiven Höhe (dieselbe Auswahl, die auch der Live-Scrub bewegt und die
+// GRAMET oben nutzt) — statt wie früher (`crosssection.js`) alle Läufe
+// gestapelt mit nur Höhe/Gelände. (`altProfileMod` ist oben bei den
+// Höhen-Zuständen deklariert, s. dort.)
+
+/** Zeigt die Methodenauswahl im Panel-Kopf etwas Sinnvolles zur Wahl an --
+ *  nur relevant, wenn an der aktiven Höhe wirklich mehr als eine Methode
+ *  vorliegt, und nur für Nutzer, die das auch sehen wollen (Expertenmodus)
+ *  oder gerade konkret einen Methodenvergleich fahren. */
+function altProfilePickerVisible(sameHeight) {
+  return sameHeight.length > 1 && (el("expertmode").checked || !!state.altProfile?.overlay);
+}
+
+function altProfileData() {
+  if (!state.altProfile) return null;
+  const { runs, t0Ms, direction } = state.altProfile;
+  // Im Methodenvergleich teilen sich mehrere Läufe eine Höhe — ohne manuelle
+  // Auswahl (s. `altProfileMethodOverride`/`syncAltProfileMethodSelect()`)
+  // zeigt das Panel die höchste Priorität (Reihenfolge s. METHODS in
+  // config.js), Rest zählt `hiddenMethods` (gleiches Muster wie `grametData()`
+  // oben) -- aber nur, wenn keine Auswahl angeboten wird; die macht die
+  // übrigen Methoden schon selbst sichtbar.
+  const sameHeight = runs.filter((x) => x.heightM === activeHeight);
+  const picked = sameHeight.find((r) => r.method === altProfileMethodOverride);
+  const run = picked ?? sameHeight[0] ?? runs[0];
+  if (!run) return null;
+  const hiddenMethods = altProfilePickerVisible(sameHeight) ? 0 : Math.max(sameHeight.length - 1, 0);
+  return { run, t0Ms, direction, hiddenMethods, metExtras: el("metextras").checked };
+}
+
+/** Methodenauswahl im Panel-Kopf: nur bei mehreren Methoden an der aktiven
+ *  Höhe UND (Expertenmodus oder laufendem Methodenvergleich) sichtbar --
+ *  s. `altProfilePickerVisible()`. */
+function syncAltProfileMethodSelect() {
+  const sel = el("altprofile-method");
+  const sameHeight = (state.altProfile?.runs ?? []).filter((r) => r.heightM === activeHeight);
+  const show = altProfilePickerVisible(sameHeight);
+  sel.hidden = !show;
+  if (!show) return;
+  const html = sameHeight
+    .map((r) => `<option value="${r.method}">${METHODS.find((m) => m.key === r.method)?.label ?? r.method}</option>`)
+    .join("");
+  if (sel.innerHTML !== html) sel.innerHTML = html;
+  const current = sameHeight.some((r) => r.method === altProfileMethodOverride)
+    ? altProfileMethodOverride
+    : sameHeight[0].method;
+  sel.value = current;
+}
+el("altprofile-method").addEventListener("change", (e) => {
+  altProfileMethodOverride = e.target.value;
+  refreshAltProfile();
+});
+
+function hideAltProfile() {
+  el("altprofile").hidden = true;
+  el("altprofilebtn").textContent = "Trajektorienverlauf (aktive Höhe)";
+  // Schließen gibt den Knopf immer sofort frei -- auch wenn gerade noch ein
+  // Öffnen läuft (langsamer Mapterhorn-Abruf, s. altitudeprofile.js
+  // `fetchTerrainProfile`). Gleiche Begründung wie `hideGramet()` oben.
+  el("altprofilebtn").disabled = false;
+  // Ohne Chart gibt es nichts zu synchronisieren -- und der Kartencursor soll
+  // nicht auf eine Strecke zeigen, die niemand mehr gegenüberstellt.
+  cursorSync.clearPath();
+}
+
+/** Offenes Vertikalprofil nachziehen (Höhenwechsel, Neuberechnung). */
+function refreshAltProfile() {
+  if (altProfileMod?.isOpen() && state.altProfile?.runs?.length) altProfileMod.update(altProfileData());
+}
+
+el("altprofilebtn").addEventListener("click", async () => {
+  if (!el("altprofile").hidden) return hideAltProfile();
+  if (!state.altProfile?.runs?.length) return;
+  el("altprofilebtn").disabled = true;
+  setStatus("Lade Trajektorienverlauf …");
+  try {
+    altProfileMod ??= await import("./altitudeprofile.js");
+    altProfileMod.bindControls();
+    // Wird das Panel erst NACH einer Parameteränderung geöffnet, hat es den
+    // Veraltet-Hinweis noch nicht gesehen — hier nachziehen, bevor der
+    // (evtl. langsamere) Mapterhorn-Abruf läuft.
+    altProfileMod.setStale(stale);
+    closeOtherOverlays("altprofile"); // s. o.: erst nach dem Laden
+    await altProfileMod.show(altProfileData()); // setzt `hidden = false` selbst (s. dort)
+    // Während des (evtl. langsamen) Ladens kann das Panel über hideAltProfile()
+    // bereits wieder geschlossen worden sein (× im Panel oder erneuter Klick)
+    // -- dann nicht den Schließen-Text nachträglich wieder aufsetzen.
+    if (!el("altprofile").hidden) {
+      el("altprofilebtn").textContent = "Trajektorienverlauf schließen";
+      setStatus("");
+    }
+  } catch (err) {
+    hideAltProfile();
+    setStatus(`Trajektorienverlauf: ${describeModuleLoadError(err)}`, true);
+  } finally {
+    el("altprofilebtn").disabled = false;
+  }
+});
+el("altprofile-close").addEventListener("click", hideAltProfile);
+window.addEventListener("resize", () => {
+  if (altProfileMod?.isOpen()) altProfileMod.syncUnits(); // re-layout, s. dort
+});
 
 // Angedocktes GRAMET (s. src/gramet.js): die Karte bleibt sichtbar, aber der
 // untere Streifen gehört jetzt dem Panel. Beim Öffnen und beim Umschalten den
@@ -2371,6 +2490,7 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
           wind_direction_deg: Math.round(dir),
           color,
           "marker-color": color,
+          ...(Number.isFinite(m.w) ? { vertical_velocity_ms: round1(m.w) } : {}),
           ...(m.met ? {
             temperature_c: round1(m.met.t),
             dewpoint_c: round1(m.met.td),

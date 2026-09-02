@@ -187,11 +187,16 @@ def compute_trajectories(
     for i, h in enumerate(sorted(heights)):
         height_colors[h] = color_list[i % len(color_list)]
 
-    w_prefix = None
-    if "z3d" in methods:
-        w_prefix = WindField.detect_w_variable(model, backend=backend_kind)
-        if not w_prefix:
-            raise RuntimeError("Model vertical velocity (w) not available")
+    # Immer versuchen, egal ob z3d gewählt ist: `w` ist auch bei anderen
+    # Methoden diagnostisch interessant (Vertikalprofil-Panel, "muss ich
+    # gegen Hebung/Absinken ankämpfen, um die Höhe zu halten?"). Nur bei
+    # z3d ist w zwingend erforderlich -- dort weiterhin hart fehlschlagen,
+    # wenn das Modell keine Vertikalgeschwindigkeit liefert; für die übrigen
+    # Methoden bleibt `w_prefix=None` einfach folgenlos (kein Fetch, kein
+    # Fehler, s. `WindField.init`s `include_w`-Fallback).
+    w_prefix = WindField.detect_w_variable(model, backend=backend_kind)
+    if "z3d" in methods and not w_prefix:
+        raise RuntimeError("Model vertical velocity (w) not available")
 
     t_end = t0_ms + direction_i * duration * 3600e3
     max_h = max(heights)
@@ -199,7 +204,7 @@ def compute_trajectories(
         max_h = max(max_h, max(h for _, h in profile))
 
     with WindField(model, w_var_prefix=w_prefix, backend=backend_kind) as wf:
-        wf.init(lat, lon, max_h, t0_ms, t_end, methods, met_extras=met_extras)
+        wf.init(lat, lon, max_h, t0_ms, t_end, methods, met_extras=met_extras, include_w=bool(w_prefix))
         jobs: list[tuple[float, str, str, dict, str]] = []
         for height_m in heights:
             for method in methods:

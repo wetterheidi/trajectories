@@ -77,10 +77,17 @@ export class WindField {
     this.needs = {
       p: list.some((v) => v === "pressure" || v === "theta"),
       t: list.includes("theta"),
-      w: list.includes("z3d"),
+      // w unabhängig von der Methode holen, nicht nur bei z3d -- der Server
+      // wird je Modell ohnehin schon unabhängig von der Methodenwahl auf w
+      // geprüft (s. app.js `updateWDetection`), das kostet hier also nichts
+      // zusätzlich. Bei anderen Methoden ist w nur zusätzliche Diagnose
+      // (Trajektorienverlauf-Panel: "muss ich gegen Hebung/Absinken
+      // ankämpfen, um die Höhe zu halten?") und bleibt bei fehlendem
+      // Server-Support einfach leer -- nur z3d braucht es zwingend.
+      w: list.includes("z3d") || !!this.wVarPrefix,
       met: metExtras, // T, Td/RH (aus q+p+T) an den Rechenpunkten mitführen
     };
-    if (this.needs.w && !this.wVarPrefix) {
+    if (list.includes("z3d") && !this.wVarPrefix) {
       throw new Error("Server liefert (noch) keine Modell-Vertikalgeschwindigkeit");
     }
     // Diagnose von p0/θ0 am Start braucht p und T auch bei anderen Optionen;

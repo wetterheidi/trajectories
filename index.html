@@ -115,7 +115,7 @@
       </select>
       <button id="download" class="secondary" disabled>Herunterladen</button>
     </div>
-    <button id="xsecbtn" class="secondary" disabled>Querschnitt anzeigen</button>
+    <button id="altprofilebtn" class="secondary" disabled>Trajektorienverlauf (aktive Höhe)</button>
     <button id="view3dbtn" class="secondary" disabled>3D-Ansicht</button>
     <button id="grametbtn" class="secondary" disabled>GRAMET (aktive Höhe)</button>
 
@@ -203,14 +203,34 @@
     </div>
   </div>
 
-  <div id="xsec" hidden>
-    <div class="xsec-head">
-      <span>Querschnitt entlang der Trajektorien</span>
-      <span class="hint" id="xsec-hint">Höhe über NN · Gelände entlang des jeweiligen Pfades</span>
-      <span class="stale-flag" id="xsec-stale" hidden>Einstellungen geändert — zeigt den vorigen Lauf</span>
-      <button id="xsec-close" title="Schließen">×</button>
+  <!-- Vertikalprofil der aktiven Trajektorie (src/altitudeprofile.js, lazy
+       geladen beim ersten Klick auf #altprofilebtn) -- zeigt nur EINEN Lauf,
+       ausgewählt über activeHeight (Balken-Klick oder das Auswahlfeld hier
+       im Kopf, s. app.js `activateHeight()`). Ersetzt den früheren
+       "Querschnitt anzeigen"-Knopf (alle Läufe gestapelt, nur Höhe/Gelände).
+       Andock-Leiste analog GRAMET (s. #gramet-dockbar): angedockt bleibt die
+       Karte darüber sichtbar, Ziehgriff verstellt die Höhe. -->
+  <div id="altprofile" hidden>
+    <div id="altprofile-dockbar">
+      <button id="altprofile-dockmode" type="button">⤢</button>
+      <span class="gm-grip" aria-hidden="true"></span>
     </div>
-    <div id="xsec-body"></div>
+    <div class="altprofile-head">
+      <span>Werte entlang der aktiven Trajektorie</span>
+      <select id="altprofile-height" aria-label="Trajektorie (Höhe)"></select>
+      <!-- Nur sichtbar, wenn an der aktiven Höhe mehrere Methoden vorliegen
+           (Methodenvergleich) UND Expertenmodus an ist oder es genau dieser
+           Vergleich ist, der die Auswahl nötig macht -- s. app.js
+           `syncAltProfileMethodSelect()`. -->
+      <select id="altprofile-method" aria-label="Methode" hidden></select>
+      <button id="altprofile-xaxis" type="button" class="toggle-chip" title="Zeit/Distanz umschalten">Zeit</button>
+      <button id="altprofile-deltap" type="button" class="toggle-chip" title="Drucktendenz ein-/ausblenden">Δp</button>
+      <button id="altprofile-w" type="button" class="toggle-chip" title="Vertikalgeschwindigkeit ein-/ausblenden">w</button>
+      <span class="hint" id="altprofile-hint"></span>
+      <span class="stale-flag" id="altprofile-stale" hidden>Einstellungen geändert — zeigt den vorigen Lauf</span>
+      <button id="altprofile-close" title="Schließen">×</button>
+    </div>
+    <div id="altprofile-body"></div>
   </div>
 
   <!-- GRAMET-Wetterquerschnitt entlang der aktiven Trajektorie. Kopf, Ebenen-

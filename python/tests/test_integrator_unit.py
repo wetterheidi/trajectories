@@ -27,7 +27,10 @@ def test_homogeneous_west_wind():
     d = dist_meters(45, 10, last["lat"], last["lon"])
     assert abs(d - 216_000) < 500
     assert abs(last["lat"] - 45) < 1e-6
-    assert len(r["markers"]) == 6
+    # 6 Intervall-Marken (1h..6h) + 1 Marke am Startzeitpunkt selbst -- die
+    # fehlte sonst, während die Höhenkurve (`points[0]`) ihn schon zeigt.
+    assert len(r["markers"]) == 7
+    assert r["markers"][0]["tMs"] == 0
 
     r30 = compute_trajectory(
         wind_at=wind_at,
@@ -40,7 +43,7 @@ def test_homogeneous_west_wind():
         grid_meters=6500,
         marker_interval_sec=1800,
     )
-    assert len(r30["markers"]) == 12
+    assert len(r30["markers"]) == 13
     assert all(abs((m["tMs"] - 900e3) % 1800e3) <= 1 for m in r30["markers"])
 
 
@@ -136,6 +139,7 @@ def test_z3d_integrates_height():
     )
     assert abs(r["points"][-1]["z"] - 4600) < 1
     assert all(math.isfinite(m["z"]) for m in r["markers"])
+    assert all(m["w"] == 0.5 for m in r["markers"])
 
     def shear(lat, lon, tg, t):
         return {"u": 5 + tg["value"] / 500, "v": 2, "w": 0.3, "zAmsl": tg["value"]}

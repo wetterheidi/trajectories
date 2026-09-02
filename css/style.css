@@ -520,7 +520,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 .marker-tip { font-variant-numeric: tabular-nums; }
 
-#xsecbtn, #view3dbtn, #grametbtn {
+#altprofilebtn, #view3dbtn, #grametbtn {
   width: 100%;
   margin-top: 6px;
   padding: 6px;
@@ -531,36 +531,83 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   border-radius: 6px;
   cursor: pointer;
 }
-#xsecbtn:disabled, #view3dbtn:disabled, #grametbtn:disabled {
+#altprofilebtn:disabled, #view3dbtn:disabled, #grametbtn:disabled {
   color: #9c9b95;
   border-color: #c9c8c2;
   cursor: default;
 }
 
-#xsec {
+/* Vertikalprofil: Overlay wie GRAMET (links neben dem Bedienpanel), nicht
+   wie der frühere volle-Breite-Querschnitt — die Sidebar soll sichtbar
+   bleiben (s. `#gramet`s `inset`, gleiches Muster). */
+#altprofile {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
-  z-index: 1000;
-  height: 250px;
+  inset: 10px 430px 10px 10px;
+  z-index: 1101;
   background: rgba(252, 252, 251, 0.97);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-#xsec[hidden] { display: none; }
+#altprofile[hidden] { display: none; }
 
-.xsec-head {
+/* Angedockt: unten angeschlagen, feste Höhe, Karte bleibt darüber sichtbar
+   (Muster wie #gramet.docked, s. dort für die ausführliche Begründung). */
+#altprofile.docked {
+  top: auto;
+  height: var(--ap-dock-h, 45vh);
+  min-height: 200px;
+  max-height: calc(100% - 20px);
+}
+
+#altprofile-dockbar {
+  position: relative;
+  flex: none;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  background: #f3f2ee;
+  border-bottom: 1px solid #eceae4;
+}
+#altprofile.docked #altprofile-dockbar { cursor: ns-resize; touch-action: none; }
+#altprofile-dockmode {
+  border: none;
+  background: none;
+  font-size: 13px;
+  line-height: 1;
+  color: #52514e;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+#altprofile-dockmode:hover { background: #e6e4de; color: #0b0b0b; }
+#altprofile:not(.docked) .gm-grip { display: none; }
+
+.altprofile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px 2px;
   font-weight: 600;
+  flex-wrap: wrap;
 }
-.xsec-head .hint { font-weight: 400; }
-#xsec-close {
+.altprofile-head .hint { font-weight: 400; }
+#altprofile-height { font: inherit; }
+.toggle-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  color: #52514e;
+  background: #fff;
+  border: 1px solid #c9c8c2;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.toggle-chip.active { color: #1c5cab; border-color: #1c5cab; }
+#altprofile-close {
   margin-left: auto;
   border: none;
   background: none;
@@ -569,24 +616,25 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   cursor: pointer;
   padding: 0 4px;
 }
-#xsec-close:hover { color: #0b0b0b; }
+#altprofile-close:hover { color: #0b0b0b; }
 
-#xsec-body { position: relative; flex: 1; min-height: 0; }
-#xsec-body svg { display: block; }
+#altprofile-body { position: relative; flex: 1; min-height: 0; overflow: auto; }
+#altprofile-body svg { display: block; }
 
-.xsec-tip {
+.altprofile-tip {
   position: absolute;
+  top: 6px;
   background: rgba(252, 252, 251, 0.97);
   border: 1px solid #c9c8c2;
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 12px;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
-  white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
-.xsec-tip .chip { display: inline-block; vertical-align: middle; margin-right: 5px; }
+.altprofile-tip[hidden] { display: none; }
 
 /* GRAMET: Overlay wie die 3D-Ansicht (links neben dem Bedienpanel), aber
    darüber — beide können gleichzeitig offen sein. Der Panel-Innenraum kommt
@@ -764,7 +812,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   select, input[type="number"] { padding: 6px 8px; }
   .gpx-rm { font-size: 18px; padding: 2px 8px; }
   #run { padding: 12px; }
-  #download, #xsecbtn, #view3dbtn, #grametbtn { padding: 10px; }
+  #download, #altprofilebtn, #view3dbtn, #grametbtn { padding: 10px; }
   #heightbar { width: 76px; height: 240px; }
   #heightbar-labels { height: 240px; width: 140px; }
   .bar-marker { height: 26px; }
@@ -788,15 +836,21 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
     height: 20px;
   }
 
-  /* Querschnitt über dem (ggf. eingeklappten) Panel, volle Breite. */
-  #xsec {
-    left: 0;
-    right: 0;
-    bottom: 0;
+  /* Vertikalprofil bildschirmfüllend -- kein Platz für Sidebar+Panel
+     nebeneinander, gleiches Muster wie GRAMETs Mobile-Override unten (auch
+     `.docked` bleibt bildschirmfüllend, die Einstellung selbst überlebt den
+     Wechsel an den Desktop). */
+  #altprofile, #altprofile.docked {
+    inset: 0;
+    height: auto;
+    max-height: none;
     z-index: 1200;
-    border-radius: 12px 12px 0 0;
+    border-radius: 0;
     padding-bottom: env(safe-area-inset-bottom);
   }
+  #altprofile.docked #altprofile-dockbar { cursor: default; touch-action: auto; }
+  #altprofile .gm-grip { display: none; }
+  #altprofile-dockmode { display: none; }
 
   /* 3D-Ansicht bildschirmfüllend; Maus-Hinweise sind auf Touch nutzlos. */
   #view3d {

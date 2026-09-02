@@ -92,6 +92,9 @@ def build_geojson(
                 "color": color,
                 "marker-color": color,
             }
+            w_val = m.get("w")
+            if w_val is not None and math.isfinite(w_val):
+                props["vertical_velocity_ms"] = round(w_val, 2)
             met = m.get("met")
             if met:
                 props.update({

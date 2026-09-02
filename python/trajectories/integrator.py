@@ -212,6 +212,22 @@ def compute_trajectory(
             break
         if points[0]["z"] is None:
             points[0]["z"] = w0.get("zAmsl")
+        if t == t0_ms:
+            # Marken entstehen sonst nur beim Übertreten eines Intervall-
+            # Vielfachen NACH dem ersten Schritt (`on_mark` unten prüft die
+            # Zeit nach dem Advektionsschritt, nie den Startpunkt selbst) --
+            # ohne diese Sonderbehandlung fehlt die erste Marke am
+            # Startzeitpunkt, während `points[0]` (Höhe/Gelände) ihn schon
+            # zeigt. `w0` ist exakt die Windprobe an (lat, lon, t0_ms), kein
+            # zusätzlicher Abruf nötig.
+            terrain0 = elevation_at(lat, lon) if elevation_at is not None else None
+            markers.append({
+                "lat": lat, "lon": lon, "tMs": t,
+                "u": w0["u"], "v": w0["v"],
+                "z": w0.get("zAmsl"), "met": w0.get("met"),
+                "w": w0.get("w"),
+                "terrain": terrain0,
+            })
         if use_profile and not _clearance_ok(lat, lon, tgt["value"], w0.get("zAmsl")):
             status, reason = "stopped", "Bodenfreiheit unterschritten"
             break
@@ -282,6 +298,7 @@ def compute_trajectory(
                     "lat": lat, "lon": lon, "tMs": t,
                     "u": w["u"], "v": w["v"],
                     "z": w.get("zAmsl"), "met": w.get("met"),
+                    "w": w.get("w"),
                     "terrain": terrain,
                 })
 

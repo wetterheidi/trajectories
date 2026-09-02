@@ -45,6 +45,13 @@ export async function computeTrajectory({
     const w0 = await windAt(lat, lon, tgt, t);
     if (w0.error) { status = "stopped"; reason = w0.error; break; }
     if (points[0].z == null) points[0].z = w0.zAmsl ?? null;
+    // Marken entstehen sonst nur beim Übertreten eines Intervall-Vielfachen
+    // NACH dem ersten Schritt (Prüfung unten läuft auf der Zeit nach der
+    // Advektion, nie auf dem Startpunkt selbst) -- ohne diese Sonder-
+    // behandlung fehlt die erste Marke am Startzeitpunkt, während `points[0]`
+    // (Höhe/Gelände) ihn schon zeigt. `w0` ist exakt die Windprobe bei
+    // (lat, lon, t0Ms), kein zusätzlicher Abruf nötig.
+    if (t === t0Ms) markers.push({ lat, lon, tMs: t, u: w0.u, v: w0.v, z: w0.zAmsl ?? null, met: w0.met, w: w0.w ?? null });
 
     const speed = Math.hypot(w0.u, w0.v);
     let dtSec = clamp((0.75 * gridMeters) / Math.max(speed, 0.5), minStepSec, maxStepSec);
@@ -80,7 +87,7 @@ export async function computeTrajectory({
     const mrem = Math.abs((t - t0Ms) % intervalMs);
     if (mrem < 1 || intervalMs - mrem < 1) {
       const w = await windAt(lat, lon, tgt, t);
-      if (!w.error) markers.push({ lat, lon, tMs: t, u: w.u, v: w.v, z: w.zAmsl ?? null, met: w.met });
+      if (!w.error) markers.push({ lat, lon, tMs: t, u: w.u, v: w.v, z: w.zAmsl ?? null, met: w.met, w: w.w ?? null });
     }
   }
 

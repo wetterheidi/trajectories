@@ -1,12 +1,18 @@
 /**
  * GRAMET-Wetterquerschnitt entlang einer berechneten Trajektorie.
  *
- * Einzige Stelle der App, die die Komponentenbibliothek `meteokit` anfasst --
- * app.js kennt nur die Exporte hier unten. Genutzt werden genau drei
- * Einstiegspunkte: die Web Component `<gramet-panel>`, `meteokit/gramet`
- * (Fetch + X-Achsen-Positionen) und `meteokit/units` (Einheiten-Singleton der
- * Bibliothek). Was die Bibliothek sonst noch enthält, ist intern -- verbindlich
- * ist allein ihre `exports`-Map (s. meteokit/package.json).
+ * Eine von zwei bewusst getrennten Stellen der App, die die Komponenten-
+ * bibliothek `meteokit` anfassen (die andere ist `altitudeprofile.js`) --
+ * app.js kennt nur die Exporte hier unten bzw. dort. Genutzt werden hier
+ * genau drei Einstiegspunkte: die Web Component `<gramet-panel>`,
+ * `meteokit/gramet` (Fetch + X-Achsen-Positionen) und `meteokit/units`
+ * (Einheiten-Singleton der Bibliothek). Was die Bibliothek sonst noch
+ * enthält, ist intern -- verbindlich ist allein ihre `exports`-Map (s.
+ * meteokit/package.json). `altitudeprofile.js` nutzt bewusst andere,
+ * disjunkte Subpaths (`meteokit/windbarb`, `meteokit/wwsymbols`,
+ * `fetchTerrainProfile` aus `meteokit/gramet`) und NICHT `<gramet-panel>` --
+ * ein Re-Export von hier würde dessen schweren Webkomponenten-Bundle in den
+ * Lazy-Load des anderen Panels hineinziehen.
  *
  * Eingebunden als `file:`-Abhängigkeit auf das Nachbar-Repo (s. package.json);
  * beide müssen nebeneinander ausgecheckt sein, auch beim Deploy-Build.
@@ -20,6 +26,7 @@ import { fetchGridForPath, posOfPath } from "meteokit/gramet";
 import { setUnits as setKitUnits } from "meteokit/units";
 import { configure, MODELS, API_BASE } from "meteokit/config";
 import * as cursorSync from "./cursorsync.js";
+import { waypointsFromRun } from "./pathgeo.js";
 
 // Im Dev-Server (import.meta.env.DEV) läuft der Modell-Level-Abruf über den
 // Vite-Proxy statt direkt gegen Michaels Server (s. vite.config.js): der
@@ -227,27 +234,6 @@ function initDock() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => applyDock(dockPrefs(), "resize"), 200);
   });
-}
-
-/**
- * Wegpunkte für den Path-Modus aus einem Lauf. `fetchGridForPath` erwartet
- * aufsteigende Zeiten — Rückwärtstrajektorien laufen in der Berechnung von
- * der Startzeit rückwärts, werden hier also umgedreht: links im Chart steht
- * dann die Herkunft, rechts der gewählte Startzeitpunkt.
- * `z` (m NN) reist als Höhenprofil mit, damit Wetterspalten und Profillinie
- * garantiert aus derselben Punktliste stammen.
- */
-function waypointsFromRun(run, direction) {
-  const wp = run.r.points
-    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.tMs))
-    .map((p) => ({
-      lat: p.lat,
-      lon: p.lon,
-      t: Math.round(p.tMs / 1000),
-      z: Number.isFinite(p.z) ? p.z : NaN,
-    }));
-  if (direction < 0) wp.reverse();
-  return wp;
 }
 
 /** Kopfzeile des Panels. Kurz halten — der Komponentenkopf trägt daneben noch
