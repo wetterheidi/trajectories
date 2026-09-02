@@ -261,7 +261,12 @@ def trajectory(
     ),
     met_extras: bool = Query(
         False,
-        description="Include T/Td/RH/p on marker points",
+        description=(
+            "Include T/Td/RH/p, cloud cover (interpolated to the marker's "
+            "height) and weather_code (WMO ground code) on marker points. "
+            "Cloud cover/weather_code are HTTP-backend only, not the local "
+            "OM dataset."
+        ),
     ),
     backend: BACKEND | None = Query(
         None,

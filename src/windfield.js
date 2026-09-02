@@ -122,8 +122,11 @@ export class WindField {
       if (this.needs.t) vars.push(`temperature_level${l}`);
       // RH is derived from q+p+T (Magnus); no model relative_humidity fetch.
       if (this.needs.met) vars.push(`specific_humidity_level${l}`);
+      if (this.needs.met) vars.push(`cloud_cover_level${l}`);
       if (this.needs.w) vars.push(`${this.wVarPrefix}_level${l}`);
     }
+    // weather_code (WW) ist ein reines Bodenfeld ohne Level-Suffix.
+    if (this.needs.met) vars.push("weather_code");
     return vars;
   }
 
@@ -203,6 +206,8 @@ export class WindField {
       w: this.needs.w ? [] : null,
       q: this.needs.met ? [] : null,
       rh: this.needs.met ? [] : null,
+      clc: this.needs.met ? [] : null,
+      ww: this.needs.met ? toArray(r.weather_code, T, 1) : null,
     };
     for (let k = 0; k < L; k++) {
       const l = this.levels[k];
@@ -213,6 +218,7 @@ export class WindField {
       if (point.w) point.w.push(toArray(r[`${this.wVarPrefix}_level${l}`], T, wUnit));
       if (point.q) point.q.push(toArray(r[`specific_humidity_level${l}`], T, qUnit));
       if (point.rh) point.rh.push(toArray(r[`relative_humidity_level${l}`], T, 1));
+      if (point.clc) point.clc.push(toArray(r[`cloud_cover_level${l}`], T, 1));
       const h = firstFinite(r[`height_agl_level${l}`]);
       point.hAgl[k] = h == null ? NaN : h;
     }
@@ -311,9 +317,10 @@ export class WindField {
     const tt = this.timeWeights(tMs);
     if (!tt) return { error: "Ende des Datenzeitraums erreicht" };
 
-    let U = 0, V = 0, W = 0, Z = 0, P = 0, TK = 0, Q = 0, RH = 0;
+    let U = 0, V = 0, W = 0, Z = 0, P = 0, TK = 0, Q = 0, RH = 0, CLC = 0;
     const dbg = this.debug ? [] : null;
-    for (const [wt, a, b] of this.bilinearWeights(lat, lon)) {
+    const weights = this.bilinearWeights(lat, lon);
+    for (const [wt, a, b] of weights) {
       const p = this.points.get(this.key(a, b));
       if (!p) return { error: "Datenlücke im Gitter" };
       const c = resolveOnTarget(p, target, tt);
@@ -326,6 +333,7 @@ export class WindField {
       TK += wt * (c.tK ?? 0);
       Q += wt * (c.q ?? 0);
       RH += wt * (c.rh ?? 0);
+      CLC += wt * (c.clc ?? 0);
       if (dbg) dbg.push(this.debugCorner(p, c, wt, a, b, tt));
     }
     if (!Number.isFinite(U) || !Number.isFinite(V)) return { error: "Fehlende Winddaten (Modelllauf unvollständig)" };
@@ -336,7 +344,11 @@ export class WindField {
     if (this.needs.met) {
       const tC = TK - 273.15;
       const rh = relativeHumidityPct(Q, P, tC) ?? (Number.isFinite(RH) ? RH : null);
-      met = { t: tC, td: dewpointC(Q, P, tC, RH), rh, p: P };
+      met = {
+        t: tC, td: dewpointC(Q, P, tC, RH), rh, p: P,
+        clc: Number.isFinite(CLC) ? CLC : null,
+        ww: this.weatherCodeAt(weights, tt),
+      };
     }
     if (dbg) {
       const tgt = `${target.type}=${Math.round(target.value)}${target.mode ? ` ${target.mode}` : ""}`;
@@ -368,6 +380,18 @@ export class WindField {
     if (p.T) row["T [°C]"] = +(at(p.T) - 273.15).toFixed(1);
     if (p.w) row["w [m/s]"] = +at(p.w).toFixed(3);
     return row;
+  }
+
+  /** WMO-Wettercode am Boden — eine Kategorie, keine physikalische Größe,
+   *  daher nächster Gitterpunkt und nächste Stunde statt bilinearer/zeitlicher
+   *  Mittelung wie bei den stetigen Feldern. */
+  weatherCodeAt(weights, tt) {
+    const [, a, b] = weights.reduce((best, w) => (w[0] > best[0] ? w : best));
+    const p = this.points.get(this.key(a, b));
+    if (!p || !p.ww) return null;
+    const ti = Math.min(tt.ti + (tt.tw >= 0.5 ? 1 : 0), p.ww.length - 1);
+    const v = p.ww[ti];
+    return Number.isFinite(v) ? Math.round(v) : null;
   }
 
   /** Modell-Geländehöhe (bilinear) aus dem Cache — nur für Positionen, an
@@ -457,6 +481,7 @@ function resolveOnTarget(pt, target, tt) {
   if (pt.T) out.tK = lin(pt.T);
   if (pt.q) out.q = lin(pt.q);
   if (pt.rh) out.rh = lin(pt.rh);
+  if (pt.clc) out.clc = lin(pt.clc);
   return out;
 }
 

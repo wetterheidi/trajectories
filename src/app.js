@@ -1223,6 +1223,8 @@ function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms, com
             td: mp.dewpoint_c,
             rh: mp.relative_humidity_pct,
             p: mp.pressure_hpa,
+            clc: mp.cloud_cover_pct,
+            ww: mp.weather_code,
           }
           : null;
         return {
@@ -1231,6 +1233,7 @@ function runsFromApiGeoJSON(gj, { mode, modelKey, direction, duration, t0Ms, com
           z: mc.length > 2 ? mc[2] : null,
           tMs: mp.time ? Date.parse(mp.time) : points[0].tMs,
           u, v, met,
+          heightAglM: Number.isFinite(mp.height_agl_m) ? mp.height_agl_m : null,
         };
       });
     const rawTerrain = Array.isArray(p.terrain_m) ? p.terrain_m : null;
@@ -1566,6 +1569,16 @@ async function runTrajectories() {
       }
     }
 
+    // AGL-Höhe je Marker aus Modellgelände — vor dem Zeichnen, damit sowohl
+    // das Popup ("klicken für Details") als auch der spätere GeoJSON-Export
+    // sie schon in run.r.markers vorfinden.
+    for (const run of [...activeRuns, ...pinRunList]) {
+      for (const m of run.r.markers) {
+        const terr = wf.elevationAt(m.lat, m.lon);
+        m.heightAglM = Number.isFinite(m.z) && Number.isFinite(terr) ? m.z - terr : null;
+      }
+    }
+
     // Zeichnen. Pins nur neu, wenn sich ihr Satz geändert hat — reines Ziehen
     // der aktiven Höhe lässt die Pins unangetastet (kein Flackern). Je Layer
     // zwei Durchgänge (erst alle weißen Unterlagen, dann alle Farblinien),
@@ -1705,11 +1718,14 @@ function drawTrajectory(r, color, label, dash, layer) {
         `<strong>${fmtTime(m.tMs)}</strong>`,
         label,
         Number.isFinite(m.z) ? `Höhe: ${fmtHeight(m.z)} NN` : null,
+        Number.isFinite(m.heightAglM) ? `AGL: ${fmtHeight(m.heightAglM)}` : null,
         `Wind: ${fmtWind(Math.hypot(m.u, m.v))} aus ${Math.round(dir)}°`,
         Number.isFinite(m.met.t) ? `T: ${m.met.t.toFixed(1)} °C` : null,
         Number.isFinite(m.met.td) ? `Td: ${m.met.td.toFixed(1)} °C` : null,
         Number.isFinite(m.met.rh) ? `RH: ${Math.round(m.met.rh)} %` : null,
         Number.isFinite(m.met.p) ? `p: ${m.met.p.toFixed(0)} hPa` : null,
+        Number.isFinite(m.met.clc) ? `Bedeckung: ${Math.round(m.met.clc)} %` : null,
+        Number.isFinite(m.met.ww) ? `WW: ${fmtWw(m.met.ww)}` : null,
         `${m.lat.toFixed(4)}°N ${m.lon.toFixed(4)}°E`,
       ];
       marker.bindPopup(`<div class="marker-tip">${rows.filter(Boolean).join("<br>")}</div>`);
@@ -2349,6 +2365,8 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
           kind: "marker",
           label,
           time: iso(m.tMs),
+          height_amsl_m: Number.isFinite(m.z) ? Math.round(m.z) : null,
+          height_agl_m: Number.isFinite(m.heightAglM) ? Math.round(m.heightAglM) : null,
           wind_speed_kmh: Math.round(spd),
           wind_direction_deg: Math.round(dir),
           color,
@@ -2358,6 +2376,8 @@ function buildGeoJSON({ runs, modelKey, mode, t0Ms, duration, direction }) {
             dewpoint_c: round1(m.met.td),
             relative_humidity_pct: Number.isFinite(m.met.rh) ? Math.round(m.met.rh) : null,
             pressure_hpa: round1(m.met.p),
+            cloud_cover_pct: Number.isFinite(m.met.clc) ? Math.round(m.met.clc) : null,
+            weather_code: Number.isFinite(m.met.ww) ? m.met.ww : null,
           } : {}),
         },
       });
@@ -2468,6 +2488,28 @@ function colorFor(heightM) {
 function fmtTime(ms) {
   const d = new Date(ms);
   return d.toISOString().slice(0, 16).replace("T", " ") + "Z";
+}
+
+// WMO-Wettercode (WW, Open-Meteo weather_code) -> METAR-artiges Kürzel für
+// die Popup-Anzeige. Der Export behält bewusst die Schlüsselzahl (eindeutig,
+// werkzeugübergreifend auswertbar) -- das Kürzel ist reine Lesehilfe hier.
+const WW_METAR = {
+  0: "–", 1: "–", 2: "–", 3: "–",
+  45: "FG", 48: "FZFG",
+  51: "-DZ", 53: "DZ", 55: "+DZ",
+  56: "-FZDZ", 57: "+FZDZ",
+  61: "-RA", 63: "RA", 65: "+RA",
+  66: "-FZRA", 67: "+FZRA",
+  71: "-SN", 73: "SN", 75: "+SN",
+  77: "SG",
+  80: "-SHRA", 81: "SHRA", 82: "+SHRA",
+  85: "-SHSN", 86: "+SHSN",
+  95: "TS",
+  96: "TSGR", 99: "+TSGR",
+};
+
+function fmtWw(code) {
+  return WW_METAR[code] ?? `WW ${code}`;
 }
 
 function setStatus(msg, isError = false) {

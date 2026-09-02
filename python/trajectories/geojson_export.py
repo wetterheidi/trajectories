@@ -75,10 +75,18 @@ def build_geojson(
         for m in r["markers"]:
             spd = math.hypot(m["u"], m["v"]) * 3.6
             direction_deg = (math.atan2(-m["u"], -m["v"]) * 180 / math.pi + 360) % 360
+            m_z = m.get("z")
+            m_terrain = m.get("terrain")
+            has_agl = (
+                m_z is not None and math.isfinite(m_z)
+                and m_terrain is not None and math.isfinite(m_terrain)
+            )
             props: dict[str, Any] = {
                 "kind": "marker",
                 "label": label,
                 "time": iso(m["tMs"]),
+                "height_amsl_m": round(m_z) if m_z is not None and math.isfinite(m_z) else None,
+                "height_agl_m": round(m_z - m_terrain) if has_agl else None,
                 "wind_speed_kmh": round(spd),
                 "wind_direction_deg": round(direction_deg),
                 "color": color,
@@ -93,6 +101,10 @@ def build_geojson(
                         round(met["rh"]) if met.get("rh") is not None and math.isfinite(met["rh"]) else None
                     ),
                     "pressure_hpa": round1(met.get("p")),
+                    "cloud_cover_pct": (
+                        round(met["clc"]) if met.get("clc") is not None and math.isfinite(met["clc"]) else None
+                    ),
+                    "weather_code": met.get("ww"),
                 })
             features.append({
                 "type": "Feature",

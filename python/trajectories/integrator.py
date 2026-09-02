@@ -277,10 +277,12 @@ def compute_trajectory(
         if on_mark:
             w = wind_at(lat, lon, tgt, t)
             if not w.get("error"):
+                terrain = elevation_at(lat, lon) if elevation_at is not None else None
                 markers.append({
                     "lat": lat, "lon": lon, "tMs": t,
                     "u": w["u"], "v": w["v"],
                     "z": w.get("zAmsl"), "met": w.get("met"),
+                    "terrain": terrain,
                 })
 
     return {

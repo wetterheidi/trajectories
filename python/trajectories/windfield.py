@@ -203,6 +203,13 @@ class WindField:
     def level_vars(self) -> list[str]:
         assert self.levels is not None
         vars_: list[str] = []
+        # cloud_cover_levelN / weather_code: only confirmed present on the HTTP
+        # (Michael's hosted Open-Meteo-compatible) API so far. The local "om"
+        # dataset only ever ingested what wind trajectories needed (u/v/w,
+        # height_agl, pressure, temperature, specific_humidity) — fetching an
+        # absent variable there raises (missing chunk directory) and would
+        # break the whole run, so skip them for that backend rather than guess.
+        want_surface = self.needs["met"] and self.backend_kind != "om"
         for l in self.levels:
             vars_.extend([
                 f"wind_u_component_level{l}",
@@ -216,8 +223,12 @@ class WindField:
             if self.needs["met"]:
                 # RH is derived from q+p+T (Magnus); no model relative_humidity fetch.
                 vars_.append(f"specific_humidity_level{l}")
+            if want_surface:
+                vars_.append(f"cloud_cover_level{l}")
             if self.needs["w"]:
                 vars_.append(f"{self.w_var_prefix}_level{l}")
+        if want_surface:
+            vars_.append("weather_code")
         return vars_
 
     def key(self, i_lat: int, i_lon: int) -> str:
@@ -296,6 +307,7 @@ class WindField:
             if self.backend_kind == "om"
             else unit_factor(self.units.get(f"wind_u_component_level{self.levels[0]}", "km/h"))
         )
+        want_surface = self.needs["met"] and self.backend_kind != "om"
         point: dict[str, Any] = {
             "elevation": r["__elevation"],
             "hAgl": [float("nan")] * L,
@@ -306,6 +318,8 @@ class WindField:
             "w": [] if self.needs["w"] else None,
             "q": [] if self.needs["met"] else None,
             "rh": [] if self.needs["met"] else None,
+            "clc": [] if want_surface else None,
+            "ww": to_array(r.get("weather_code"), T, 1) if want_surface else None,
         }
         for k in range(L):
             l = self.levels[k]
@@ -321,6 +335,8 @@ class WindField:
                 point["q"].append(to_array(r.get(f"specific_humidity_level{l}"), T, q_unit))
             if point["rh"] is not None:
                 point["rh"].append(to_array(r.get(f"relative_humidity_level{l}"), T, 1))
+            if point["clc"] is not None:
+                point["clc"].append(to_array(r.get(f"cloud_cover_level{l}"), T, 1))
             h = first_finite(r.get(f"height_agl_level{l}"))
             point["hAgl"][k] = float("nan") if h is None else h
         self.points[self.key(i_lat, i_lon)] = point
@@ -406,8 +422,9 @@ class WindField:
         if not tt:
             return {"error": "Ende des Datenzeitraums erreicht"}
 
-        U = V = W = Z = P = TK = Q = RH = 0.0
-        for wt, a, b in self.bilinear_weights(lat, lon):
+        U = V = W = Z = P = TK = Q = RH = CLC = 0.0
+        weights = self.bilinear_weights(lat, lon)
+        for wt, a, b in weights:
             p = self.points.get(self.key(a, b))
             if not p:
                 return {"error": "Datenlücke im Gitter"}
@@ -422,6 +439,7 @@ class WindField:
             TK += wt * (c.get("tK") or 0)
             Q += wt * (c.get("q") or 0)
             RH += wt * (c.get("rh") or 0)
+            CLC += wt * (c.get("clc") or 0)
 
         if not (_isfinite(U) and _isfinite(V)):
             return {"error": "Fehlende Winddaten (Modelllauf unvollständig)"}
@@ -434,12 +452,32 @@ class WindField:
             rh = relative_humidity_pct(Q, P, t_c)
             if rh is None and _isfinite(RH):
                 rh = RH
-            met = {"t": t_c, "td": dewpoint_c(Q, P, t_c, RH), "rh": rh, "p": P}
+            met = {
+                "t": t_c, "td": dewpoint_c(Q, P, t_c, RH), "rh": rh, "p": P,
+                "clc": CLC if _isfinite(CLC) else None,
+                "ww": self._weather_code_at(weights, tt),
+            }
 
         out: dict[str, Any] = {"u": U, "v": V, "zAmsl": Z, "met": met}
         if self.needs["w"]:
             out["w"] = float(W) if _isfinite(W) else None
         return out
+
+    def _weather_code_at(
+        self, weights: list[tuple[float, int, int]], tt: dict
+    ) -> int | None:
+        """WMO weather code at the ground — a category, not a physical
+        quantity, so nearest grid point and nearest hour instead of the
+        bilinear/time-linear blending used for the continuous fields."""
+        _, a, b = max(weights, key=lambda w: w[0])
+        p = self.points.get(self.key(a, b))
+        if not p or p.get("ww") is None:
+            return None
+        ww = p["ww"]
+        ti = tt["ti"] + (1 if tt["tw"] >= 0.5 else 0)
+        ti = min(ti, len(ww) - 1)
+        v = ww[ti]
+        return int(v) if _isfinite(v) else None
 
     def elevation_at(self, lat: float, lon: float) -> float | None:
         e = 0.0
@@ -519,6 +557,8 @@ def resolve_on_target(pt: dict, target: dict, tt: dict) -> dict:
                 out["q"] = lin(pt["q"])
             if pt["rh"] is not None:
                 out["rh"] = lin(pt["rh"])
+            if pt["clc"] is not None:
+                out["clc"] = lin(pt["clc"])
             return out
         br = height_bracket(pt["hAgl"], h_target)
         if br.get("error"):
@@ -565,6 +605,8 @@ def resolve_on_target(pt: dict, target: dict, tt: dict) -> dict:
         out["q"] = lin(pt["q"])
     if pt["rh"] is not None:
         out["rh"] = lin(pt["rh"])
+    if pt["clc"] is not None:
+        out["clc"] = lin(pt["clc"])
     return out
 
 

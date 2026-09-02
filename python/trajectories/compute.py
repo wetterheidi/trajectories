@@ -229,7 +229,7 @@ def compute_trajectories(
                 height_profile=profile,
                 marker_interval_climb_sec=marker_climb_sec if profile else None,
                 clearance_m=float(clearance_m) if profile else 0.0,
-                elevation_at=wf.elevation_at if profile else None,
+                elevation_at=wf.elevation_at,
             )
             return {
                 "r": r,
