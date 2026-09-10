@@ -24,6 +24,15 @@ const DEBUG = new URLSearchParams(location.search).has("debug") ||
 const DEV_API = new URLSearchParams(location.search).has("devapi") ||
   localStorage.getItem("trajDevApi") === "1";
 
+// Startpunkt per Verknüpfung aus anderen Apps: ?lat=48.2&lon=16.3 an der URL
+// setzt den Startmarker direkt beim Laden (überschreibt den gespeicherten
+// Startpunkt, nicht aber sonstige Einstellungen).
+const urlParams = new URLSearchParams(location.search);
+const URL_START_LAT = parseFloat(urlParams.get("lat"));
+const URL_START_LON = parseFloat(urlParams.get("lon"));
+const HAS_URL_START = Number.isFinite(URL_START_LAT) && Number.isFinite(URL_START_LON) &&
+  Math.abs(URL_START_LAT) <= 90 && Math.abs(URL_START_LON) <= 180;
+
 /* global L */
 
 const el = (id) => document.getElementById(id);
@@ -95,8 +104,10 @@ function persist() {
 }
 
 const map = L.map("map", {
-  center: saved.view?.center ? [saved.view.center.lat, saved.view.center.lng] : [50.5, 10.5],
-  zoom: saved.view?.zoom ?? 6,
+  center: HAS_URL_START
+    ? [URL_START_LAT, URL_START_LON]
+    : saved.view?.center ? [saved.view.center.lat, saved.view.center.lng] : [50.5, 10.5],
+  zoom: HAS_URL_START ? Math.max(saved.view?.zoom ?? 6, 11) : saved.view?.zoom ?? 6,
 });
 map.on("moveend", () => persist());
 
@@ -720,7 +731,9 @@ async function updateWDetection() {
 }
 
 updateWDetection();
-if (saved.start && Number.isFinite(saved.start.lat) && Number.isFinite(saved.start.lon)) {
+if (HAS_URL_START) {
+  setStart(URL_START_LAT, URL_START_LON);
+} else if (saved.start && Number.isFinite(saved.start.lat) && Number.isFinite(saved.start.lon)) {
   setStart(saved.start.lat, saved.start.lon);
 }
 
