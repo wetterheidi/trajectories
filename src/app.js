@@ -12,6 +12,7 @@ import { initGeocode } from "./geocode.js";
 import * as cursorSync from "./cursorsync.js";
 import { initGeoman } from "./geoman.js";
 import { createTimeline } from "./timeline.js";
+import { createAirspaceOverlay } from "meteokit/airspace";
 
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
@@ -89,6 +90,7 @@ function persist() {
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
     airspace: map.hasLayer(airspaceLayer),
+    worldAirspace: map.hasLayer(worldAirspace.group),
     units: { ...unitState },
     liveMode: el("livemode").checked,
     methods: selectedMethods(),
@@ -145,8 +147,16 @@ const airspaceLayer = L.tileLayer("https://nwy-tiles-api.prod.newaydata.com/tile
   keepBuffer: 2,
   subdomains: ["a", "b", "c"],
 });
-const overlayLayers = { "Lufträume": airspaceLayer };
+// Lufträume weltweit (openAIP über meteokit/airspace) — eigener Cache-Server
+// statt Live-API (deren bbox-Abfrage ist laut eigener Doku "mainly intended
+// for export use-cases", nicht für Viewport-Live-Abfragen; s.
+// meteokit/tools/airspace-cache/README.md für den Hintergrund). Neu für
+// trajectories -- bisher gab es hier nur den einfachen Tile-Layer oben.
+const worldAirspace = createAirspaceOverlay(L);
+
+const overlayLayers = { "Lufträume": airspaceLayer, "Lufträume weltweit (openAIP)": worldAirspace.group };
 if (saved.airspace) airspaceLayer.addTo(map);
+if (saved.worldAirspace) worldAirspace.group.addTo(map);
 
 L.control.layers(baseLayers, overlayLayers, { position: "topleft" }).addTo(map);
 map.on("baselayerchange", (e) => {
@@ -155,7 +165,13 @@ map.on("baselayerchange", (e) => {
 });
 map.on("overlayadd overlayremove", (e) => {
   if (e.layer === airspaceLayer) persist();
+  if (e.layer === worldAirspace.group) {
+    if (e.type === "overlayadd") worldAirspace.attach(map);
+    else worldAirspace.detach(map);
+    persist();
+  }
 });
+if (saved.worldAirspace) worldAirspace.attach(map);
 
 // Geoman-Zeichenwerkzeug (Marker/Linie/Kreis, Peilung/Radius-Labels).
 initGeoman(map);
