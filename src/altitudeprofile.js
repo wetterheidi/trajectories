@@ -200,14 +200,22 @@ export async function show(data) {
 export async function update(data) {
   if (!data?.run) return;
   const my = ++seq;
-  lastData = data;
   const { run, direction } = data;
   const waypoints = waypointsFromRun(run, direction);
   if (waypoints.length < 2) {
+    // `lastData` erst NACH dieser Prüfung setzen: `clearPath()` benachrichtigt
+    // synchron den Fadenkreuz-Abonnenten unten, der nur `!lastData` prüft --
+    // bliebe `lastData` hier schon gesetzt, riefe er `render()` auf, obwohl
+    // `lastWaypoints`/`lastPos` (noch) `null` sind (typischerweise beim
+    // allerersten Öffnen einer zu kurzen Trajektorie) und stürzte ab.
+    lastData = null;
+    lastWaypoints = null;
+    lastPos = null;
     cursorSync.clearPath();
     el("altprofile-body").textContent = "Diese Trajektorie hat zu wenige Punkte für einen Trajektorienverlauf.";
     return;
   }
+  lastData = data;
   lastWaypoints = waypoints;
   lastPos = posOfPath(waypoints);
   // Cursor nur zurücksetzen, wenn wirklich ein anderer Lauf gezeigt wird --
@@ -233,6 +241,7 @@ export async function update(data) {
 export function hide() {
   const host = el("altprofile");
   if (host) host.hidden = true;
+  lastData = null;
   cursorSync.clearPath();
   lastRunR = null;
 }
