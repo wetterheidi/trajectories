@@ -12,8 +12,13 @@
  * reagieren unverändert.
  *
  * Bedienung:
- *   Startgriff (eckig)  -- verschiebt den Zeitpunkt, die Dauer wandert mit.
- *   Endgriff (rund)     -- setzt die Dauer; links vom Start heißt rückwärts.
+ *   Startgriff (blaues Viereck, unterhalb der Achse)
+ *                       -- verschiebt den Zeitpunkt, die Dauer wandert mit.
+ *   Endgriff (oranger Punkt, oberhalb der Achse)
+ *                       -- setzt die Dauer; links vom Start heißt rückwärts.
+ *   Die beiden Griffe liegen bewusst auf getrennten Zeilen (nicht beide auf
+ *   der Achse) -- sonst wären sie kaum auseinanderzuhalten oder einzeln zu
+ *   greifen, sobald Start und Ende zeitlich nah beieinanderliegen.
  *   − / + / Mausrad     -- zoomt den Ausschnitt (die Achse deckt gut 6 Tage
  *                          ab, ein 12-h-Flug wäre darin kaum zu greifen).
  *   Doppelklick         -- zurück auf die ganze Achse.
@@ -41,7 +46,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
  */
 export function createTimeline({ root, slider, duration, direction, maxDurationH, fmtTime }) {
   root.innerHTML = `
-    <div class="tl-track" title="Ziehen: eckiger Griff = Startzeit, runder Griff = Ende (links vom Start = rückwärts). Mausrad oder −/+ zoomt, Doppelklick zeigt wieder alles.">
+    <div class="tl-track" title="Ziehen: blaues Viereck unten = Startzeit, oranger Punkt oben = Ende (links vom Start = rückwärts). Mausrad oder −/+ zoomt, Doppelklick zeigt wieder alles.">
       <div class="tl-clip">
         <div class="tl-days"></div>
         <div class="tl-span"></div>

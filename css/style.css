@@ -157,21 +157,32 @@ select, input[type="number"], input[type="search"] {
 input[type="range"] { width: 100%; margin: 4px 0 8px; }
 #timeslider[hidden] { display: none; }
 
-/* --- Zeitband: Startzeit (eckiger Griff), Dauer und Richtung (runder
-   Endgriff) an einer gemeinsamen Achse. Logik in src/timeline.js. --- */
+/* --- Zeitband: Startzeit (blaues Viereck unterhalb der Achse), Dauer und
+   Richtung (oranger Punkt oberhalb) an einer gemeinsamen Achse. Getrennte
+   Zeilen halten die beiden Griffe auch dann leicht unterscheidbar und
+   einzeln greifbar, wenn Start und Ende zeitlich nah beieinanderliegen.
+   Logik in src/timeline.js. --- */
 #timeline { margin: 4px 0 6px; }
 .tl-track {
+  --tl-axis: 30px;        /* Höhe der Achse selbst */
+  --tl-grip: 14px;        /* Höhe der Griffzeile ober-/unterhalb der Achse */
   position: relative;
-  height: 30px;
+  height: calc(var(--tl-axis) + 2 * var(--tl-grip));
   margin: 0 7px 9px;      /* Platz, damit die Randgriffe nicht überstehen */
   touch-action: none;
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
 }
+/* Absolut positionierte Kinder richten sich an der Padding-Kante aus --
+   Padding auf .tl-track selbst würde die Achse also NICHT einrücken. Die
+   Achse bekommt ihren Abstand deshalb über eigene top/bottom-Werte. */
 .tl-clip {
   position: absolute;
-  inset: 0;
+  top: var(--tl-grip);
+  bottom: var(--tl-grip);
+  left: 0;
+  right: 0;
   overflow: hidden;
   border: 1px solid #c9c8c2;
   border-radius: 5px;
@@ -229,28 +240,47 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 .tl-handle {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 18px;           /* Greiffläche -- bewusst breiter als der Strich */
-  margin-left: -9px;
+  width: 22px;            /* Greiffläche -- bewusst breiter als der Strich */
+  margin-left: -11px;
   cursor: ew-resize;
 }
+/* Startgriff: Griffleiste reicht vom Achsenanfang (oberer Achsenrand) bis
+   unter die Achse, wo das Viereck sitzt. Endgriff spiegelbildlich darüber. */
+.tl-h-start { top: var(--tl-grip); bottom: 0; }
+.tl-h-end { top: 0; bottom: var(--tl-grip); }
+/* Dünne Linie von der Achse zum Griffsymbol -- zeigt, welcher Zeitpunkt
+   gemeint ist, auch wenn das Symbol selbst außerhalb der Achse sitzt. */
 .tl-handle::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 5px;
-  margin-left: -2.5px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 1.5px;
+}
+.tl-h-start::before { background: rgba(28, 92, 171, .55); }
+.tl-h-end::before { background: rgba(235, 104, 52, .55); }
+/* Das eigentliche Griffsymbol: Viereck unten (Start), Punkt oben (Ende). */
+.tl-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 13px;
+  height: 13px;
+  margin-left: -6.5px;
   border: 1px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
 }
-.tl-handle:focus-visible { outline: 2px solid #1f4e79; outline-offset: 2px; }
-.tl-h-start::before { background: #1c5cab; border-radius: 2px; }
-.tl-h-end::before { background: #eb6834; border-radius: 3px; }
+.tl-h-start::after { bottom: -1px; background: #1c5cab; border-radius: 2px; }
+.tl-h-end::after { top: -1px; background: #eb6834; border-radius: 50%; }
+.tl-handle:focus-visible { outline: none; }
+.tl-handle:focus-visible::after {
+  box-shadow: 0 0 0 2px #1f4e79, 0 1px 3px rgba(0, 0, 0, .35);
+}
 /* Der Griff läge außerhalb des Ausschnitts und klebt am Rand. */
-.tl-handle.tl-clipped::before {
+.tl-handle.tl-clipped::after {
   opacity: .8;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 1px 3px rgba(0, 0, 0, .35);
 }
@@ -822,9 +852,10 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
   input[type="range"] { height: 28px; }
 
   /* Zeitband: größere Griffe und Schrittknöpfe für den Finger. */
-  .tl-track { height: 38px; margin: 0 11px 10px; }
-  .tl-handle { width: 30px; margin-left: -15px; top: -4px; bottom: -4px; }
-  .tl-handle::before { width: 7px; margin-left: -3.5px; }
+  .tl-track { --tl-axis: 38px; --tl-grip: 18px; margin: 0 11px 10px; }
+  .tl-handle { width: 34px; margin-left: -17px; }
+  .tl-handle::before { width: 4px; margin-left: -2px; }
+  .tl-handle::after { width: 18px; height: 18px; margin-left: -9px; }
   .tl-step { padding: 6px 14px; font-size: 16px; }
   .tl-readout { font-size: 13px; }
   #expertlabel { font-size: 14px; }

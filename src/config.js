@@ -15,6 +15,9 @@ export const MODELS = {
     gridMeters: 2200,
     nLevels: 65,
     bbox: { latMin: 43.18, latMax: 58.08, lonMin: -3.94, lonMax: 20.34 },
+    // Reale DWD-Vorhersagereichweite; begrenzt den Zeitschieber im
+    // clientseitigen Rechenmodus (s. maxDurationH() in app.js).
+    maxForecastH: 48,
   },
   icon_eu: {
     apiModel: "icon_eu",
@@ -24,6 +27,7 @@ export const MODELS = {
     gridMeters: 6500,
     nLevels: 74,
     bbox: { latMin: 29.5, latMax: 70.5, lonMin: -23.5, lonMax: 62.5 },
+    maxForecastH: 120,
   },
 };
 

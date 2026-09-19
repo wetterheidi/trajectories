@@ -40,13 +40,14 @@ const el = (id) => document.getElementById(id);
 
 // Maximale Trajektoriendauer je Rechenmodus. Die Browser-Berechnung fragt das
 // Windfeld direkt über die Live-API ab (wie dronecast) und reicht damit so
-// weit wie ICON-EU selbst (~120 h); der API-Request-Modus rechnet serverseitig
-// über einen separat gepflegten .om-Mirror (TRAJECTORIES_OM_ROOT) mit kürzerem
-// Retention-Fenster und bleibt daher enger begrenzt.
-const MAX_DURATION_CLIENT_H = 120;
+// weit wie das gewählte Modell selbst rechnet (MODELS[...].maxForecastH,
+// z. B. 48 h bei ICON-D2, 120 h bei ICON-EU); der API-Request-Modus rechnet
+// serverseitig über einen separat gepflegten .om-Mirror
+// (TRAJECTORIES_OM_ROOT) mit kürzerem Retention-Fenster und bleibt daher
+// unabhängig vom Modell enger begrenzt.
 const MAX_DURATION_API_H = 72;
 function maxDurationH() {
-  return el("useapi").checked ? MAX_DURATION_API_H : MAX_DURATION_CLIENT_H;
+  return el("useapi").checked ? MAX_DURATION_API_H : MODELS[el("model").value].maxForecastH;
 }
 // Das Zeitband (src/timeline.js) wird erst nach dem Wiederherstellen der
 // Einstellungen gebaut; bis dahin laufen die Auffrischungen ins Leere.
@@ -1045,12 +1046,12 @@ function updateDirectionLabels() {
 // modusabhängig: API-Modus liest state.meta.t1 (.om-Mirror-Retention), die
 // clientseitige Berechnung fragt live bei der Forecast-API nach (siehe
 // windfield.js) und reicht daher bis zum vollen Modell-Horizont
-// (MAX_DURATION_CLIENT_H) ab dem Modelllauf.
+// (MODELS[...].maxForecastH) ab dem Modelllauf.
 function forwardEdgeSec() {
   if (!state.meta) return null;
   return el("useapi").checked
     ? state.meta.t1
-    : state.meta.runInit + MAX_DURATION_CLIENT_H * 3600;
+    : state.meta.runInit + MODELS[el("model").value].maxForecastH * 3600;
 }
 
 // Zeitschieber-Obergrenze neu ziehen, wenn sich der Rechenmodus ändert (ohne
@@ -1115,6 +1116,7 @@ el("direction").addEventListener("change", () => {
 });
 el("model").addEventListener("change", () => {
   persist();
+  syncDurationBounds(); // maxDurationH() hängt vom Modell ab (ICON-D2 48 h, ICON-EU 120 h)
   loadMeta();
   updateWDetection();
   fetchStartElevation(); // Modellorographie unterscheidet sich je Modell
