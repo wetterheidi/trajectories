@@ -19,7 +19,8 @@ Die 2D-App ist ESM und kann ohne Build aus dem Projektwurzelverzeichnis
 serviert werden; die **3D-Ansicht** braucht Cesium-Assets und damit
 `npm run build` sowie Auslieferung von `dist/` (lokal: `npm run preview`,
 VPS: `npm run deploy:vps`). Basic Auth: siehe [`deploy/README.md`](deploy/README.md).
-Die Trajectories-HTTP-API bleibt unter `https://trajectory.mah.priv.at`.
+Die Trajectories-HTTP-API liegt primär unter `https://trajectory.wetterheidi.de`,
+`https://trajectory.mah.priv.at` dient als Fallback.
 
 ## Bedienung
 

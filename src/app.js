@@ -1,5 +1,5 @@
 import {
-  API_BASE, API_BASES, ELEVATION_API_BASES, DEV_PROXY_BASE, TRAJECTORY_API, MODELS,
+  API_BASE, API_BASES, ELEVATION_API_BASES, DEV_PROXY_BASE, TRAJECTORY_API, TRAJECTORY_API_BASES, MODELS,
   SERIES_COLORS, DEFAULT_HEIGHTS, HEIGHT_MIN, HEIGHT_MAX, MARKER_INTERVALS, METHODS,
 } from "./config.js";
 import {
@@ -20,13 +20,6 @@ import { createAirspaceOverlay } from "meteokit/airspace";
 // Konsolen-Monitor: ?debug=1 an der URL oder localStorage.trajDebug = "1".
 const DEBUG = new URLSearchParams(location.search).has("debug") ||
   localStorage.getItem("trajDebug") === "1";
-
-// trajectory.mah.priv.at ist derzeit gestört: „API abrufen" ist für normale
-// Nutzer gesperrt (Checkbox bleibt aus/disabled) und fällt auf die
-// Browser-Berechnung zurück. Für Tests im Hintergrund aktivierbar über
-// ?devapi=1 an der URL oder localStorage.trajDevApi = "1".
-const DEV_API = new URLSearchParams(location.search).has("devapi") ||
-  localStorage.getItem("trajDevApi") === "1";
 
 // Startpunkt per Verknüpfung aus anderen Apps: ?lat=48.2&lon=16.3 an der URL
 // setzt den Startmarker direkt beim Laden (überschreibt den gespeicherten
@@ -99,7 +92,7 @@ function persist() {
     liveMode: el("livemode").checked,
     methods: selectedMethods(),
     metExtras: el("metextras").checked,
-    useApi: el("useapi").checked,
+    useApiV2: el("useapi").checked,
     expert: el("expertmode").checked,
   };
   try {
@@ -824,18 +817,17 @@ el("expertmode").addEventListener("change", () => {
 });
 
 if (saved.metExtras) el("metextras").checked = true;
-if (DEV_API) {
-  el("useapi").disabled = false;
-  el("useapi").title = "";
-  el("useapi").checked = saved.useApi !== false;
-  if (el("useapi").checked && el("livemode").checked) {
-    el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
-  }
-} else {
-  el("useapi").checked = false;
+// Eigener Speicherschlüssel `useApiV2` statt `useApi`: während der API-
+// Dienst gestört war, war die Checkbox gesperrt und hat bei ALLEN Nutzern
+// `useApi: false` gespeichert. Der alte Wert wird deshalb ignoriert, damit
+// „API abrufen" nach der Wiederinbetriebnahme für alle wieder Default ist.
+el("useapi").checked = saved.useApiV2 !== false;
+if (el("useapi").checked && el("livemode").checked) {
+  el("useapi").checked = false; // Live-Scrub nur mit Browser-Rechnung
 }
 syncDurationBounds();
 el("useapi").addEventListener("change", () => {
+  updateSourceInfo();
   if (el("useapi").checked && el("livemode").checked) {
     el("livemode").checked = false;
     state.live = null;
@@ -986,7 +978,9 @@ function updateHeightContext() {
 // tatsächlich geliefert hat (meteokit/apifetch protokolliert jeden
 // erfolgreichen Abruf). Rot mit „⚠ Fallback", sobald nicht der bevorzugte
 // Server (API_BASE) liefert; der Tooltip listet alle bisher genutzten Quellen.
-const SOURCE_LABELS = { elevation: "Geländehöhe (DEM90)", surface: "Oberfläche (GRAMET)" };
+const SOURCE_LABELS = {
+  elevation: "Geländehöhe (DEM90)", surface: "Oberfläche (GRAMET)", trajectory: "Trajektorien-API",
+};
 function hostLabel(base) {
   if (base === DEV_PROXY_BASE) return "open-meteo.mah.priv.at (Dev-Proxy)";
   try { return new URL(base).host; } catch { return base; }
@@ -994,9 +988,17 @@ function hostLabel(base) {
 function updateSourceInfo() {
   const info = el("sourceinfo");
   const sources = getApiSources();
-  const src = sources.find((x) => x.key === MODELS[el("model").value]?.apiModel);
-  const fallback = !!src && src.base !== API_BASE;
-  info.textContent = src ? ` · Server: ${hostLabel(src.base)}${fallback ? " ⚠ Fallback" : ""}` : "";
+  // Mit „API abrufen" rechnet der Trajektorien-Dienst -- dann zählt dessen
+  // Host, sonst der Modelllevel-Host der Browser-Rechnung.
+  const useApi = el("useapi").checked;
+  const src = useApi
+    ? sources.find((x) => x.key === "trajectory")
+    : sources.find((x) => x.key === MODELS[el("model").value]?.apiModel);
+  const preferred = useApi ? TRAJECTORY_API : API_BASE;
+  const fallback = !!src && src.base !== preferred;
+  info.textContent = src
+    ? ` · ${useApi ? "API" : "Server"}: ${hostLabel(src.base)}${fallback ? " ⚠ Fallback" : ""}`
+    : "";
   info.classList.toggle("fallback", fallback);
   info.title = sources
     .map((x) => `${SOURCE_LABELS[x.key] || MODELS[x.key]?.label || x.key}: ${hostLabel(x.base)}`)
@@ -1400,9 +1402,14 @@ async function runTrajectoriesViaApi({
 
   const t0 = performance.now();
   try {
-    const url = `${TRAJECTORY_API}/v1/trajectory?${params}`;
-    if (DEBUG) console.debug("[traj] API", url);
-    const resp = await fetch(url, { signal: abortCtrl.signal });
+    const pathAndQuery = `/v1/trajectory?${params}`;
+    if (DEBUG) console.debug("[traj] API", TRAJECTORY_API_BASES, pathAndQuery);
+    // Primär trajectory.wetterheidi.de, bei Netzwerk-/HTTP-Fehler Michaels
+    // Instanz (TRAJECTORY_API_BASES); erst wenn beide scheitern, greift die
+    // Fehlerbehandlung unten.
+    const resp = await fetchWithFallback(TRAJECTORY_API_BASES, pathAndQuery, {
+      signal: abortCtrl.signal, sourceKey: "trajectory",
+    });
     const body = await resp.text();
     let data;
     try {

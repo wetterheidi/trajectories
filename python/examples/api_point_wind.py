@@ -2,7 +2,7 @@
 """
 Call GET /v1/wind and print flat JSON.
 
-Defaults to https://trajectory.mah.priv.at (override with TRAJECTORIES_API_URL).
+Defaults to https://trajectory.wetterheidi.de (override with TRAJECTORIES_API_URL).
 
 Setup (from repo root):
   source python/.venv/bin/activate
@@ -13,7 +13,7 @@ Local uvicorn instead:
   uvicorn trajectories.api:app --host 127.0.0.1 --port 8010
   TRAJECTORIES_API_URL=http://127.0.0.1:8010 python python/examples/api_point_wind.py
 
-Swagger: https://trajectory.mah.priv.at/docs
+Swagger: https://trajectory.wetterheidi.de/docs
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-BASE = os.environ.get("TRAJECTORIES_API_URL", "https://trajectory.mah.priv.at").rstrip("/")
+BASE = os.environ.get("TRAJECTORIES_API_URL", "https://trajectory.wetterheidi.de").rstrip("/")
 OUT = Path(__file__).resolve().parent / "out_api_point_wind.json"
 
 PARAMS = {

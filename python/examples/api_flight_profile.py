@@ -2,7 +2,7 @@
 """
 Call GET /v1/trajectory with a kinematic AGL flight profile (Gneixendorf sketch).
 
-Defaults to https://trajectory.mah.priv.at (override with TRAJECTORIES_API_URL).
+Defaults to https://trajectory.wetterheidi.de (override with TRAJECTORIES_API_URL).
 
   source python/.venv/bin/activate
   python python/examples/api_flight_profile.py
@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-BASE = os.environ.get("TRAJECTORIES_API_URL", "https://trajectory.mah.priv.at").rstrip("/")
+BASE = os.environ.get("TRAJECTORIES_API_URL", "https://trajectory.wetterheidi.de").rstrip("/")
 OUT = Path(__file__).resolve().parent / "out_api_flight_profile.geojson"
 
 # Sketch: low level → climb → cruise → descend (edit freely).

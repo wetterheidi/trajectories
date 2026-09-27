@@ -24,7 +24,7 @@ python/
   README.md               # install / CLI / API / test recipes
   examples/
     basic_trajectory.py   # library smoke
-    api_trajectory.py     # HTTP client (default https://trajectory.mah.priv.at)
+    api_trajectory.py     # HTTP client (default https://trajectory.wetterheidi.de)
     api_point_wind.py     # GET /v1/wind client
     api_flight_profile.py # GET /v1/trajectory with AGL profile
   trajectories/
@@ -75,7 +75,7 @@ npm install                   # Vite — web↔Python compare only
 # Standalone library example (AGL ≤3 km, 10 min markers, met extras):
 python python/examples/basic_trajectory.py
 
-# HTTP client example (default base: https://trajectory.mah.priv.at):
+# HTTP client example (default base: https://trajectory.wetterheidi.de):
 python python/examples/api_trajectory.py
 python python/examples/api_point_wind.py
 # local: TRAJECTORIES_API_URL=http://127.0.0.1:8010 python python/examples/api_trajectory.py
@@ -139,7 +139,7 @@ Open-Meteo taxonomy for queries; response is the same GeoJSON FeatureCollection 
 Duration with a profile is `min(forecast_hours, last_profile_time/3600)`. One profile → one track. Browser UI is not wired yet.
 
 ```bash
-curl -sG 'https://trajectory.mah.priv.at/v1/trajectory' \
+curl -sG 'https://trajectory.wetterheidi.de/v1/trajectory' \
   --data-urlencode 'latitude=48.4375' \
   --data-urlencode 'longitude=15.6181' \
   --data-urlencode 'models=icon_eu' \
@@ -173,7 +173,7 @@ Single-point wind sample (flat JSON, not GeoJSON). No trajectory integration.
 Response: top-level lat/lon/time/height plus `models[]` with `wind_u_ms`, `wind_v_ms`, `wind_w_ms` (null if unavailable), speeds, met “from” direction, `z_amsl_m`, `terrain_m`. Multi-model requests may return per-model `{error, reason}` entries (HTTP 200) when at least one model succeeds.
 
 ```bash
-curl -sG 'https://trajectory.mah.priv.at/v1/wind' \
+curl -sG 'https://trajectory.wetterheidi.de/v1/wind' \
   --data-urlencode 'latitude=47.23' \
   --data-urlencode 'longitude=15.82' \
   --data-urlencode 'models=icon_eu,icon_d2' \
@@ -219,7 +219,8 @@ sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-**Public URLs:** `https://trajectory.mah.priv.at/docs`, `/health`, `/v1/trajectory`, `/v1/wind`.  
+**Public URLs:** `https://trajectory.wetterheidi.de/docs`, `/health`, `/v1/trajectory`, `/v1/wind`
+(primary; `https://trajectory.mah.priv.at` remains as fallback).  
 Client example defaults to that host (`TRAJECTORIES_API_URL`).
 
 ## Accelerating answer processing

@@ -18,8 +18,12 @@ export const API_BASES = [API_BASE, LEGACY_API_BASE];
 // das, sobald dort DEM90 liegt, greift er ohne Codeänderung.
 export const ELEVATION_API_BASES = [API_BASE, LEGACY_API_BASE, SURFACE_API_BASE];
 
-/** FastAPI trajectories service (GeoJSON). Used when „API abrufen“ is checked. */
-export const TRAJECTORY_API = "https://trajectory.mah.priv.at";
+/** FastAPI trajectories service (GeoJSON). Used when „API abrufen“ is checked.
+ *  Seit 2026-09 primär auf trajectory.wetterheidi.de (CORS offen, auch für
+ *  localhost), Michaels Instanz nur noch als Fallback (meteokit/apifetch). */
+export const TRAJECTORY_API = "https://trajectory.wetterheidi.de";
+export const TRAJECTORY_API_FALLBACK = "https://trajectory.mah.priv.at";
+export const TRAJECTORY_API_BASES = [TRAJECTORY_API, TRAJECTORY_API_FALLBACK];
 
 // Levelzählung der API: N=1 oberstes, N=nLevels unterstes Modelllevel (~10 m AGL).
 export const MODELS = {
