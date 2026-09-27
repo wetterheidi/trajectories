@@ -1,4 +1,5 @@
-import { API_BASE, MODELS } from "./config.js";
+import { API_BASES, MODELS } from "./config.js";
+import { fetchWithFallback } from "meteokit/apifetch";
 
 const KMH_TO_MS = 1 / 3.6;
 const MAX_POINTS_PER_REQUEST = 10;
@@ -42,9 +43,9 @@ export class WindField {
     for (const prefix of ["wind_w", "vertical_velocity", "w"]) {
       try {
         const varName = `${prefix}_level${model.nLevels - 5}`;
-        const url = `${API_BASE}/v1/forecast?latitude=50&longitude=10` +
+        const pathAndQuery = `/v1/forecast?latitude=50&longitude=10` +
           `&hourly=${varName}&models=${model.apiModel}&forecast_days=1`;
-        const resp = await fetchImpl(url);
+        const resp = await fetchWithFallback(API_BASES, pathAndQuery, { fetchImpl, sourceKey: modelKey });
         if (!resp.ok) continue;
         const d = await resp.json();
         if (d.error) continue;
@@ -235,11 +236,15 @@ export class WindField {
   /** Netzwerkfehler (z. B. kurzer Neustart von Michaels Server während eines
    *  GRIB-Imports) sind meist binnen Sekunden vorbei — bei langen Trajektorien
    *  mit vielen Nachlade-Runden lohnt sich ein paar Mal erneut zu versuchen,
-   *  bevor der Lauf als gescheitert gemeldet wird. */
-  async fetchWithRetry(url, attempts = 3, delayMs = 1500) {
+   *  bevor der Lauf als gescheitert gemeldet wird. Jeder Versuch läuft über
+   *  die Host-Kette (API_BASES, meteokit/apifetch): erst wenn ALLE Hosts
+   *  scheitern, zählt das als Fehlversuch. */
+  async fetchWithRetry(pathAndQuery, attempts = 3, delayMs = 1500) {
     for (let i = 0; i < attempts; i++) {
       try {
-        const resp = await this.fetch(url, this.signal ? { signal: this.signal } : undefined);
+        const resp = await fetchWithFallback(API_BASES, pathAndQuery, {
+          fetchImpl: this.fetch, signal: this.signal, sourceKey: this.modelKey,
+        });
         if (!resp.ok && resp.status >= 500 && i < attempts - 1) {
           await sleep(delayMs * (i + 1));
           continue;
@@ -268,8 +273,7 @@ export class WindField {
       end_date: this.endDate,
       cell_selection: "nearest",
     });
-    const url = `${API_BASE}/v1/forecast?${params}`;
-    const resp = await this.fetchWithRetry(url);
+    const resp = await this.fetchWithRetry(`/v1/forecast?${params}`);
     const body = await resp.text();
     let data;
     try {

@@ -1,6 +1,22 @@
-// Im Dev-Server über den Vite-Proxy (vite.config.js) -- Michaels Server lässt
-// per CORS-Allowlist nur die Produktions-Origin direkt aus dem Browser durch.
-export const API_BASE = import.meta.env.DEV ? "/api-proxy" : "https://open-meteo.mah.priv.at";
+import {
+  API_BASE as KIT_API_BASE,
+  LEGACY_API_BASE as KIT_LEGACY_API_BASE,
+  SURFACE_API_BASE,
+} from "meteokit/config";
+
+// Modelllevel-Hosts in Prioritätsreihenfolge (Umschaltung: meteokit/apifetch):
+// bevorzugt open-meteo.wetterheidi.de (CORS offen, auch im Dev-Betrieb direkt),
+// Michaels bisherige Instanz als Fallback. Die lässt per CORS-Allowlist nur
+// die Produktions-Origin direkt aus dem Browser durch -- im Dev-Server läuft
+// sie deshalb über den Vite-Proxy (vite.config.js).
+export const API_BASE = KIT_API_BASE;
+export const DEV_PROXY_BASE = "/api-proxy";
+export const LEGACY_API_BASE = import.meta.env?.DEV ? DEV_PROXY_BASE : KIT_LEGACY_API_BASE;
+export const API_BASES = [API_BASE, LEGACY_API_BASE];
+// DEM90-Geländehöhe: der neue Server hat (Stand 2026-09-27) noch kein DEM90
+// und antwortet mit `{"elevation":[nan]}` -- fetchJsonWithFallback überspringt
+// das, sobald dort DEM90 liegt, greift er ohne Codeänderung.
+export const ELEVATION_API_BASES = [API_BASE, LEGACY_API_BASE, SURFACE_API_BASE];
 
 /** FastAPI trajectories service (GeoJSON). Used when „API abrufen“ is checked. */
 export const TRAJECTORY_API = "https://trajectory.mah.priv.at";

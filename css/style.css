@@ -509,6 +509,7 @@ input[type="range"] { width: 100%; margin: 4px 0 8px; }
 
 #status { margin: 8px 0 0; min-height: 1em; color: #52514e; }
 #status.error { color: #b3261e; }
+#sourceinfo.fallback { color: #b3261e; font-weight: 600; }
 
 #results { margin-top: 4px; }
 .result-line { display: flex; align-items: center; gap: 6px; padding: 2px 0; }

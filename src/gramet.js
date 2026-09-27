@@ -24,25 +24,26 @@
 import "meteokit/components/gramet-panel";
 import { fetchGridForPath, posOfPath } from "meteokit/gramet";
 import { setUnits as setKitUnits } from "meteokit/units";
-import { configure, MODELS, API_BASE } from "meteokit/config";
+import { configure, MODELS, LEGACY_API_BASE, elevationApiBases } from "meteokit/config";
 import * as cursorSync from "./cursorsync.js";
 import { waypointsFromRun } from "./pathgeo.js";
 
-// Im Dev-Server (import.meta.env.DEV) läuft der Modell-Level-Abruf über den
-// Vite-Proxy statt direkt gegen Michaels Server (s. vite.config.js): der
-// lässt per Caddy-CORS-Allowlist nur die Produktions-Origins durch, ein
-// direkter Browser-Request von localhost bekäme 403 (s. src/config.js).
-// Betrifft nur Modelle, deren apiBase auf diesen Server zeigt (ICON-D2/EU) --
-// ICON Global (eigener Server, offene CORS) und die öffentliche
-// Oberflächen-Instanz bleiben unverändert.
+// Im Dev-Server (import.meta.env.DEV) läuft der Abruf von Michaels Server
+// (nur noch Fallback, bevorzugt ist open-meteo.wetterheidi.de mit offenem
+// CORS) über den Vite-Proxy (s. vite.config.js): der lässt per Caddy-CORS-
+// Allowlist nur die Produktions-Origins durch, ein direkter Browser-Request
+// von localhost bekäme 403 (s. src/config.js). Alle anderen Hosts bleiben
+// unverändert.
 if (import.meta.env.DEV) {
+  const viaProxy = (b) => (b === LEGACY_API_BASE ? "/api-proxy" : b);
   configure({
     models: Object.fromEntries(
       Object.entries(MODELS).map(([key, m]) => [
         key,
-        m.apiBase === API_BASE ? { ...m, apiBase: "/api-proxy" } : m,
+        { ...m, apiBase: viaProxy(m.apiBase), apiFallbacks: (m.apiFallbacks || []).map(viaProxy) },
       ]),
     ),
+    elevationApiBases: elevationApiBases().map(viaProxy),
   });
 }
 

@@ -1,7 +1,10 @@
 import {
-  API_BASE, TRAJECTORY_API, MODELS, SERIES_COLORS, DEFAULT_HEIGHTS,
-  HEIGHT_MIN, HEIGHT_MAX, MARKER_INTERVALS, METHODS,
+  API_BASE, API_BASES, ELEVATION_API_BASES, DEV_PROXY_BASE, TRAJECTORY_API, MODELS,
+  SERIES_COLORS, DEFAULT_HEIGHTS, HEIGHT_MIN, HEIGHT_MAX, MARKER_INTERVALS, METHODS,
 } from "./config.js";
+import {
+  fetchWithFallback, fetchJsonWithFallback, getApiSources, onApiSourceChange,
+} from "meteokit/apifetch";
 import { WindField } from "./windfield.js";
 import { computeTrajectory } from "./integrator.js";
 import {
@@ -201,8 +204,11 @@ const fetchCursorElevation = debounce(async (lat, lon) => {
   const seq = ++cursorReadoutSeq;
   try {
     const params = new URLSearchParams({ latitude: lat.toFixed(5), longitude: lon.toFixed(5) });
-    const d = await (await fetch(`${API_BASE}/v1/elevation?${params}`)).json();
-    const elev = Array.isArray(d.elevation) ? d.elevation[0] : d.elevation;
+    const first = (x) => (Array.isArray(x.elevation) ? x.elevation[0] : x.elevation);
+    const d = await fetchJsonWithFallback(ELEVATION_API_BASES, `/v1/elevation?${params}`, {
+      sourceKey: "elevation", validate: (x) => Number.isFinite(first(x)),
+    });
+    const elev = first(d);
     cursorElevationCache.set(key, Number.isFinite(elev) ? elev : null);
   } catch {
     // Geländehöhe ist Komfort -- bei Fehler bleibt nur die Koordinate stehen.
@@ -930,7 +936,10 @@ async function fetchStartElevation() {
       models: model.apiModel,
       forecast_days: "1",
     });
-    const d = await (await fetch(`${API_BASE}/v1/forecast?${params}`)).json();
+    // Liefert die Modell-Gitterhöhe (auf allen Hosts gleich, nicht DEM90).
+    const d = await (await fetchWithFallback(API_BASES, `/v1/forecast?${params}`, {
+      sourceKey: model.apiModel,
+    })).json();
     if (Number.isFinite(d.elevation) && state.start === s) {
       state.startElevation = d.elevation;
       updateHeightContext();
@@ -972,13 +981,38 @@ function updateHeightContext() {
   syncAltProfileMethodSelect();
 }
 
+// --- Datenquelle --------------------------------------------------------------
+// Zeigt, welcher Host die Modelllevel-Daten des gewählten Modells ZULETZT
+// tatsächlich geliefert hat (meteokit/apifetch protokolliert jeden
+// erfolgreichen Abruf). Rot mit „⚠ Fallback", sobald nicht der bevorzugte
+// Server (API_BASE) liefert; der Tooltip listet alle bisher genutzten Quellen.
+const SOURCE_LABELS = { elevation: "Geländehöhe (DEM90)", surface: "Oberfläche (GRAMET)" };
+function hostLabel(base) {
+  if (base === DEV_PROXY_BASE) return "open-meteo.mah.priv.at (Dev-Proxy)";
+  try { return new URL(base).host; } catch { return base; }
+}
+function updateSourceInfo() {
+  const info = el("sourceinfo");
+  const sources = getApiSources();
+  const src = sources.find((x) => x.key === MODELS[el("model").value]?.apiModel);
+  const fallback = !!src && src.base !== API_BASE;
+  info.textContent = src ? ` · Server: ${hostLabel(src.base)}${fallback ? " ⚠ Fallback" : ""}` : "";
+  info.classList.toggle("fallback", fallback);
+  info.title = sources
+    .map((x) => `${SOURCE_LABELS[x.key] || MODELS[x.key]?.label || x.key}: ${hostLabel(x.base)}`)
+    .join("\n");
+}
+onApiSourceChange(updateSourceInfo);
+
 // --- Zeitschieber aus meta.json des gewählten Modells -----------------------
 async function loadMeta() {
   const model = MODELS[el("model").value];
   el("status").textContent = "Lade Modelllauf-Info …";
   el("status").className = "";
   try {
-    const meta = await (await fetch(`${API_BASE}/data/${model.dataset}/static/meta.json`)).json();
+    const meta = await (await fetchWithFallback(API_BASES, `/data/${model.dataset}/static/meta.json`, {
+      sourceKey: model.apiModel,
+    })).json();
     // Zeitschieber blickt bewusst nur PAST_HOURS zurück (nicht die volle
     // Serverarchivtiefe) — gilt für beide Rechenvarianten, da beide denselben
     // Schieber/State nutzen.
@@ -995,6 +1029,7 @@ async function loadMeta() {
     const want = prev ?? Math.round(Date.now() / 3600e3);
     slider.value = Math.min(Math.max(want, +slider.min), +slider.max);
     el("runinfo").textContent = ` · Daten bis ${fmtTime(t1 * 1000)}`;
+    updateSourceInfo();
     updateTimeLabel();
     updateReachHint();
     timeline?.refresh();

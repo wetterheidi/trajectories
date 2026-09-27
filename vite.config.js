@@ -25,6 +25,8 @@ export default defineConfig({
   // verweigert der Dev-Server das Ausliefern ihrer Module.
   server: {
     fs: { allow: [root, meteokit] },
+    // Nur noch für den FALLBACK nötig: der bevorzugte Server
+    // open-meteo.wetterheidi.de hat offenes CORS und wird direkt angefragt.
     // Michaels open-meteo-Server lässt per Caddy-CORS-Allowlist nur die
     // Produktions-Origin https://trajectories.wetterheidi.de durch, sonst 403
     // (auch ganz ohne Origin-Header). Im Dev-Betrieb läuft der Request über

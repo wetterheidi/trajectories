@@ -1,4 +1,4 @@
-// Live-Test gegen open-meteo.mah.priv.at: 6-h-Vorwärtstrajektorien ab München
+// Live-Test gegen open-meteo.wetterheidi.de: 6-h-Vorwärtstrajektorien ab München
 // in allen verfügbaren Vertikaloptionen + w-Erkennung.
 import { WindField } from "../src/windfield.js";
 import { computeTrajectory } from "../src/integrator.js";
