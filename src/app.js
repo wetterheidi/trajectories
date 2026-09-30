@@ -83,6 +83,7 @@ function persist() {
     heights: [...heightColors].map(([m, color]) => ({ m, color })),
     activeHeight,
     barMax,
+    pastDays,
     start: state.start,
     view: { center: map.getCenter(), zoom: map.getZoom() },
     baseLayer: activeBaseLayer,
@@ -302,6 +303,13 @@ function clearStale() {
 // 6 km). HEIGHT_MAX bleibt die absolute Obergrenze für diese Auswahl.
 const BAR_MAX_OPTIONS = [3000, 4000, 5000, 6000, 8000, 10000];
 let barMax = BAR_MAX_OPTIONS.includes(saved.barMax) ? saved.barMax : 6000;
+
+// Rückblick des Zeitschiebers in Tagen vor dem letzten Modelllauf, in den
+// Einstellungen wählbar. Default bewusst 1 Tag -- der Regelfall ist die
+// Vorhersage. Obergrenze orientiert sich an der Serverarchivtiefe (Stand
+// 2026-09: ca. 9–10 Tage auf beiden Modelllevel-Hosts und im API-Dienst).
+const PAST_DAYS_OPTIONS = [1, 2, 3, 5, 7];
+let pastDays = PAST_DAYS_OPTIONS.includes(saved.pastDays) ? saved.pastDays : 1;
 
 function addHeight(m) {
   m = Math.round(Math.min(barMax, Math.max(HEIGHT_MIN, m)));
@@ -694,6 +702,25 @@ for (const v of BAR_MAX_OPTIONS) {
   if (v === barMax) opt.selected = true;
   el("barmax").appendChild(opt);
 }
+// --- Rückblick (Zeitschieber-Untergrenze) ------------------------------------
+for (const v of PAST_DAYS_OPTIONS) {
+  const opt = document.createElement("option");
+  opt.value = v;
+  opt.textContent = v === 1 ? "1 Tag" : `${v} Tage`;
+  if (v === pastDays) opt.selected = true;
+  el("pastdays").appendChild(opt);
+}
+el("pastdays").addEventListener("change", () => {
+  pastDays = +el("pastdays").value;
+  const prev = el("timeslider").value;
+  syncSliderBounds();
+  updateReachHint();
+  // Nur wenn der Schieber an die neue Kante geklemmt wurde, passt das
+  // Ergebnis nicht mehr zur Startzeit.
+  if (el("timeslider").value !== prev) markStale();
+  persist();
+});
+
 el("barmax").addEventListener("change", () => {
   barMax = +el("barmax").value;
   // Höhen oberhalb des neuen Maximums fallen weg.
@@ -1015,15 +1042,11 @@ async function loadMeta() {
     const meta = await (await fetchWithFallback(API_BASES, `/data/${model.dataset}/static/meta.json`, {
       sourceKey: model.apiModel,
     })).json();
-    // Zeitschieber blickt bewusst nur PAST_HOURS zurück (nicht die volle
-    // Serverarchivtiefe) — gilt für beide Rechenvarianten, da beide denselben
-    // Schieber/State nutzen.
-    const t0 = meta.last_run_initialisation_time - PAST_HOURS * 3600;
     const t1 = meta.data_end_time;
-    state.meta = { t0, t1, runInit: meta.last_run_initialisation_time };
+    state.meta = { t1, runInit: meta.last_run_initialisation_time };
     const slider = el("timeslider");
     const prev = +slider.value || null;
-    slider.min = Math.ceil(t0 / 3600);
+    slider.min = Math.ceil(backEdgeSec() / 3600);
     slider.max = Math.floor(forwardEdgeSec() / 3600);
     // Beim ersten Laden auf die aktuelle Uhrzeit (auf volle Stunde gerundet)
     // stellen, bei Modellwechsel die gewählte Zeit behalten — jeweils auf den
@@ -1068,9 +1091,13 @@ function updateTimeLabel() {
   el("timelabel").textContent = fmtTime(+el("timeslider").value * 3600e3);
 }
 
-// Vergangenheits-Horizont für den Zeitschieber, absichtlich auf 24 h begrenzt
-// (unabhängig davon, wie viel Archiv der Server tatsächlich hält).
-const PAST_HOURS = 24;
+// Rückwärtskante des Zeitschiebers: der gewählte Rückblick (pastDays) vor dem
+// letzten Modelllauf -- gilt für beide Rechenvarianten, da beide denselben
+// Schieber/State nutzen.
+function backEdgeSec() {
+  if (!state.meta) return null;
+  return state.meta.runInit - pastDays * 24 * 3600;
+}
 
 // Bei Rückwärtstrajektorien ist der gesetzte Punkt/Zeitpunkt die Ankunft.
 function updateDirectionLabels() {
@@ -1091,13 +1118,14 @@ function forwardEdgeSec() {
     : state.meta.runInit + MODELS[el("model").value].maxForecastH * 3600;
 }
 
-// Zeitschieber-Obergrenze neu ziehen, wenn sich der Rechenmodus ändert (ohne
-// meta.json neu zu laden) — sonst bliebe der Schieber im clientseitigen
-// Modus fälschlich auf der kürzeren API-Kante stehen.
+// Zeitschieber-Grenzen neu ziehen, wenn sich Rechenmodus oder Rückblick
+// ändern (ohne meta.json neu zu laden) — sonst bliebe der Schieber z. B. im
+// clientseitigen Modus fälschlich auf der kürzeren API-Kante stehen.
 function syncSliderBounds() {
   if (!state.meta) return;
   const slider = el("timeslider");
   const prev = +slider.value;
+  slider.min = Math.ceil(backEdgeSec() / 3600);
   slider.max = Math.floor(forwardEdgeSec() / 3600);
   slider.value = Math.min(Math.max(prev, +slider.min), +slider.max);
   updateTimeLabel();
@@ -1113,7 +1141,7 @@ function updateReachHint() {
   const dur = Math.min(maxDurationH(), Math.max(1, +el("duration").value || 12));
   const t0Ms = +el("timeslider").value * 3600e3;
   const back = dir === -1;
-  const edgeMs = (back ? state.meta.t0 : forwardEdgeSec()) * 1000;
+  const edgeMs = (back ? backEdgeSec() : forwardEdgeSec()) * 1000;
   const availH = Math.max(0, (back ? t0Ms - edgeMs : edgeMs - t0Ms) / 3600e3);
   const word = back ? "rückwärts" : "vorwärts";
   if (availH < dur) {

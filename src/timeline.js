@@ -19,8 +19,9 @@
  *   Die beiden Griffe liegen bewusst auf getrennten Zeilen (nicht beide auf
  *   der Achse) -- sonst wären sie kaum auseinanderzuhalten oder einzeln zu
  *   greifen, sobald Start und Ende zeitlich nah beieinanderliegen.
- *   − / + / Mausrad     -- zoomt den Ausschnitt (die Achse deckt gut 6 Tage
- *                          ab, ein 12-h-Flug wäre darin kaum zu greifen).
+ *   − / + / Mausrad     -- zoomt den Ausschnitt (die Achse deckt je nach
+ *                          Rückblick gut 6 Tage und mehr ab, ein 12-h-Flug
+ *                          wäre darin kaum zu greifen).
  *   Doppelklick         -- zurück auf die ganze Achse.
  */
 
@@ -30,7 +31,7 @@ const DAY_MS = 24 * HOUR_MS;
 
 // Zoomstufen als Fensterbreite in Stunden; die volle Achse kommt als
 // gröbste Stufe automatisch dazu.
-const ZOOM_SPANS = [12, 24, 48, 96];
+const ZOOM_SPANS = [12, 24, 48, 96, 168];
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
