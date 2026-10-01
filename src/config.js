@@ -49,6 +49,21 @@ export const MODELS = {
     bbox: { latMin: 29.5, latMax: 70.5, lonMin: -23.5, lonMax: 62.5 },
     maxForecastH: 120,
   },
+  // Open-Meteo regridded das icosaedrische ICON-Global-Gitter (~13 km) auf
+  // ein reguläres 0,125°-Raster (wie meteokit/config). bbox global -- an der
+  // Datumsgrenze endet eine Trajektorie wie sonst am Modellrand.
+  icon_global: {
+    apiModel: "icon_global",
+    dataset: "dwd_icon",
+    label: "ICON Global (~13 km)",
+    grid: 0.125,
+    gridMeters: 13915,
+    nLevels: 120,
+    bbox: { latMin: -90, latMax: 90, lonMin: -180, lonMax: 180 },
+    // 00/12-UTC-Läufe rechnen 180 h, 06/18 UTC nur 120 h; Open-Meteo füllt
+    // mit dem vorigen langen Lauf auf -- ab jedem Lauf sind so 174 h sicher.
+    maxForecastH: 174,
+  },
 };
 
 // CVD-validierte Farb-Slots für helle Kartenhintergründe. Eine Höhe behält

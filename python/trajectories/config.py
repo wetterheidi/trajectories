@@ -56,6 +56,20 @@ MODELS = {
             "lonMax": 62.5,
         },
     },
+    "icon_global": {
+        "apiModel": "icon_global",
+        "dataset": "dwd_icon",
+        "label": "ICON Global (~13 km)",
+        "grid": 0.125,
+        "gridMeters": 13915,
+        "nLevels": 120,
+        "bbox": {
+            "latMin": -90.0,
+            "latMax": 90.0,
+            "lonMin": -180.0,
+            "lonMax": 180.0,
+        },
+    },
 }
 
 SERIES_COLORS = [

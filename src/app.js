@@ -37,7 +37,7 @@ const el = (id) => document.getElementById(id);
 // Maximale Trajektoriendauer je Rechenmodus. Die Browser-Berechnung fragt das
 // Windfeld direkt über die Live-API ab (wie dronecast) und reicht damit so
 // weit wie das gewählte Modell selbst rechnet (MODELS[...].maxForecastH,
-// z. B. 48 h bei ICON-D2, 120 h bei ICON-EU); der API-Request-Modus rechnet
+// z. B. 48 h bei ICON-D2, 120 h bei ICON-EU, 174 h bei ICON Global); der API-Request-Modus rechnet
 // serverseitig über einen separat gepflegten .om-Mirror
 // (TRAJECTORIES_OM_ROOT) mit kürzerem Retention-Fenster und bleibt daher
 // unabhängig vom Modell enger begrenzt.
