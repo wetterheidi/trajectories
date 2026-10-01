@@ -194,7 +194,10 @@ plus die Zeitmarken als Points mit Wind.
     frei, sobald der Server die Vertikalgeschwindigkeit anbietet (Erkennung
     beim App-Start, Einheiten aus der API-Antwort)
   Schneidet die Zielfläche das Gelände oder verlässt sie den Datenbereich,
-  stoppt die Trajektorie mit sichtbarem Grund.
+  stoppt die Trajektorie mit sichtbarem Grund. Bei absoluten Zielhöhen
+  (konstant AMSL, 3D) zählt dafür die bilinear interpolierte Modellorographie
+  am Ort, nicht jede einzelne Gittersäule; ausgegeben wird dann exakt die
+  Zielhöhe.
 - **Geometrie:** Kugelgeometrie mit cos(Breite)-Korrektur der Längenverlagerung.
 - **Grenzen:** Am Rand des Modellgebiets, am Ende des Datenzeitraums oder bei
   Datenlücken stoppt die Trajektorie mit sichtbarem Grund statt zu extrapolieren.

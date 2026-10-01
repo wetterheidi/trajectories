@@ -424,6 +424,9 @@ class WindField:
 
         U = V = W = Z = P = TK = Q = RH = CLC = 0.0
         weights = self.bilinear_weights(lat, lon)
+        ground_err = self._ground_check(weights, target)
+        if ground_err:
+            return ground_err
         for wt, a, b in weights:
             p = self.points.get(self.key(a, b))
             if not p:
@@ -458,10 +461,39 @@ class WindField:
                 "ww": self._weather_code_at(weights, tt),
             }
 
+        # Absolute target: z is the target height by definition (see JS).
+        if target["type"] == "z3d" or (target["type"] == "height" and target.get("mode") == "amsl"):
+            Z = float(target["value"])
         out: dict[str, Any] = {"u": U, "v": V, "zAmsl": Z, "met": met}
         if self.needs["w"]:
             out["w"] = float(W) if _isfinite(W) else None
         return out
+
+    def _ground_check(self, weights: list[tuple[float, int, int]], target: dict) -> dict | None:
+        """Absolute target heights (constant AMSL, z3d) below the model terrain
+        at the position end the trajectory -- port of groundCheck() in
+        src/windfield.js. Uses the bilinear orography at the position (the same
+        one zAmsl is built from), not each column: on slopes a single corner
+        would otherwise stop the run up to one grid length early. Such corners
+        stay clamped to the lowest level by height_bracket."""
+        absolute = target["type"] == "z3d" or (
+            target["type"] == "height" and target.get("mode") == "amsl"
+        )
+        if not absolute:
+            return None
+        E = 0.0
+        for wt, a, b in weights:
+            p = self.points.get(self.key(a, b))
+            if not p:
+                return {"error": "Datenlücke im Gitter"}
+            if not _isfinite(p["elevation"]):
+                return None  # ohne Orographie keine Prüfung (wie JS: NaN-Vergleich)
+            E += wt * p["elevation"]
+        if not (target["value"] < E):
+            return None
+        if target["type"] == "z3d":
+            return {"error": "Trajektorie erreicht den Boden"}
+        return {"error": "Gelände über Zielhöhe (Höhe über NN)"}
 
     def _weather_code_at(
         self, weights: list[tuple[float, int, int]], tt: dict
@@ -524,8 +556,6 @@ def resolve_on_target(pt: dict, target: dict, tt: dict) -> dict:
             if target["type"] == "z3d" or target.get("mode") == "amsl"
             else target["value"]
         )
-        if target["type"] == "z3d" and h_target < 0:
-            return {"error": "Trajektorie erreicht den Boden"}
         try:
             from .interp_fast import resolve_height_fast
 

@@ -7,7 +7,7 @@
     "dev": "NODE_OPTIONS=--max-http-header-size=131072 vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/integrator.test.mjs",
+    "test": "node test/integrator.test.mjs && node test/groundcheck.test.mjs",
     "test:live": "node test/live-smoke.mjs",
     "deploy": "bash scripts/deploy-hetzner.sh",
     "deploy:vps": "bash scripts/deploy-vps.sh"

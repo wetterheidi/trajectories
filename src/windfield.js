@@ -331,6 +331,8 @@ export class WindField {
     let U = 0, V = 0, W = 0, Z = 0, P = 0, TK = 0, Q = 0, RH = 0, CLC = 0;
     const dbg = this.debug ? [] : null;
     const weights = this.bilinearWeights(lat, lon);
+    const groundErr = this.groundCheck(weights, target);
+    if (groundErr) return groundErr;
     for (const [wt, a, b] of weights) {
       const p = this.points.get(this.key(a, b));
       if (!p) return { error: "Datenlücke im Gitter" };
@@ -371,7 +373,30 @@ export class WindField {
       );
       console.table(dbg);
     }
+    // Absolute Zielhöhe: z ist per Definition die Zielhöhe. Die Säulen-Summe
+    // wiche am Hang davon ab, weil unter Gelände liegende Ecken aufs unterste
+    // Level geklemmt sind (sonst bis ~100 m Überhöhung kurz vor dem Stopp).
+    if (target.type === "z3d" || (target.type === "height" && target.mode === "amsl")) Z = target.value;
     return { u: U, v: V, w: this.needs.w ? W : undefined, zAmsl: Z, met };
+  }
+
+  /** Absolute Zielhöhen (konstant NN, 3D) unter dem Modellgelände am Ort
+   *  beenden die Trajektorie. Maßgeblich ist die bilinear interpolierte
+   *  Orographie an der Position -- dieselbe, aus der auch zAmsl entsteht --,
+   *  nicht jede einzelne Säule: am Hang liegt sonst schon eine Gitterweite
+   *  vorher eine Ecke über der Zielhöhe. Solche Ecken klemmt heightBracket
+   *  weiter aufs unterste Level (Effekt auf eine Gitterzelle begrenzt). */
+  groundCheck(weights, target) {
+    const absolute = target.type === "z3d" || (target.type === "height" && target.mode === "amsl");
+    if (!absolute) return null;
+    let E = 0;
+    for (const [wt, a, b] of weights) {
+      const p = this.points.get(this.key(a, b));
+      if (!p) return { error: "Datenlücke im Gitter" };
+      E += wt * p.elevation;
+    }
+    if (!(target.value < E)) return null;
+    return { error: target.type === "z3d" ? "Trajektorie erreicht den Boden" : "Gelände über Zielhöhe (Höhe über NN)" };
   }
 
   /** Eine Zeile des Konsolen-Monitors: welcher Gitterpunkt mit welchem
@@ -455,7 +480,6 @@ function resolveOnTarget(pt, target, tt) {
     const hTarget = target.type === "z3d" || target.mode === "amsl"
       ? target.value - pt.elevation
       : target.value;
-    if (target.type === "z3d" && hTarget < 0) return { error: "Trajektorie erreicht den Boden" };
     br = heightBracket(pt.hAgl, hTarget);
     if (br.error) return br;
   } else if (target.type === "pressure") {
