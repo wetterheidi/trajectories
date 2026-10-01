@@ -49,20 +49,32 @@ if (import.meta.env.DEV) {
 
 const STORAGE_KEY = "trajectories.gramet.v1";
 
+// Höchstzahl tatsächlich gefetchter Modellsäulen je Pfad (Bibliotheks-
+// Default 12, vorher hier 16). Hochgesetzt für den Test "Wellen im Path-
+// GRAMET" (Isentropen/Vertikalwind): Leewellen haben ~5-25 km Wellenlänge,
+// bei 16 Säulen lagen auf einem 300-km-Pfad ~20 km dazwischen -- zu grob,
+// um sie abzutasten. Die Kandidaten liefert meteokit ohnehin im Abstand der
+// Modell-Gitterweite, `maxCols` dünnt sie nur gleichmäßig aus. Mit Michael
+// (Server) abgestimmt; kostet Ladezeit (8 parallele Requests, ~2-4 s je
+// Säule).
+const MAX_COLS = 60;
+
 // Zeitliche Auflösung des interpolierten Gitters (`resampleIntervalSec`):
 // zwischen den tatsächlich gefetchten Säulen wird interpoliert, das kostet
 // kein Netzwerk, nur Rechenzeit und Spaltenzahl. Längere Pfade gröber, damit
-// der Canvas nicht ins Extrem wächst.
+// der Canvas nicht ins Extrem wächst -- aber nie gröber als der halbe
+// mittlere Säulenabstand, sonst verschluckt das Anzeigeraster genau die
+// Struktur, für die die Säulen gefetcht wurden (Wellen, s. MAX_COLS).
 function resampleSec(durationH) {
-  if (durationH <= 12) return 600;
-  if (durationH <= 36) return 900;
-  return 1800;
+  const base = durationH <= 12 ? 600 : durationH <= 36 ? 900 : 1800;
+  const halfColSpacing = (durationH * 3600) / (2 * MAX_COLS);
+  return Math.max(60, Math.min(base, Math.floor(halfColSpacing)));
 }
 
 // Ein Fetch-Ergebnis je Trajektorie. Schlüssel ist das `r`-Objekt des Laufs:
 // jede Neuberechnung erzeugt neue Objekte, der Cache invalidiert sich also
 // selbst; Pins bleiben über Live-Scrubs hinweg objektstabil und damit im
-// Cache. Wichtig, weil ein Pfad ~12–16 volle Modellsäulen kostet.
+// Cache. Wichtig, weil ein Pfad bis zu MAX_COLS volle Modellsäulen kostet.
 const gridCache = new WeakMap();
 
 // Höhenwechsel während eines laufenden Fetches: nur die jüngste Anfrage darf
@@ -269,9 +281,7 @@ async function gridFor(run, modelKey, duration, waypoints) {
       // Mapterhorn-Kacheln eines langen Pfades brauchen im Browser länger als
       // der gesamte Wetterabruf.
       terrainDeferred: true,
-      // Etwas mehr Spalten als der Bibliotheks-Default (12): Trajektorien
-      // laufen bis 72 h, sonst läge zwischen zwei Säulen ein halber Tag.
-      maxCols: 16,
+      maxCols: MAX_COLS,
       resampleIntervalSec: resampleSec(duration),
     });
     gridCache.set(run.r, entry);
