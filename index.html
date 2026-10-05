@@ -18,6 +18,10 @@
     <div id="panelhead">
       <h1>Windtrajektorien</h1>
       <div class="head-ctl">
+        <!-- Querverweis auf die Hindcast-/Verifikationsseite (diagnose/), in
+             deren Erkennungsfarbe Petrol -- bewusst klein, der Fokus dieser
+             Seite bleibt die Vorhersage. -->
+        <a id="hindcastlink" href="diagnose/" title="Gefahrene Strecke (GPX) mit dem Modellwind vergleichen">Hindcast</a>
         <label id="expertlabel" title="Zeigt zusätzliche Einstellungen für den Vergleich von Berechnungsarten">
           <input type="checkbox" id="expertmode" />Experte
         </label>
@@ -165,7 +169,8 @@
     <div class="footer">
       Daten: DWD ICON via open-meteo.wetterheidi.de (Fallback open-meteo.mah.priv.at) ·
       Petterssen-Schema, bilinear/linear interpoliert
-      <span id="runinfo"></span><span id="sourceinfo"></span>
+      <span id="runinfo"></span><span id="sourceinfo"></span><br />
+      Rückblick auf eine gefahrene Strecke: <a href="diagnose/">Hindcast / Modellverifikation</a>
     </div>
   </div>
 

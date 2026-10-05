@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Hindcast — Modellverifikation gefahrener Strecken</title>
+  <!-- Eigenes Icon in Petrol statt des blauen Vorhersage-Icons: beide Seiten
+       sollen schon im Browser-Tab nicht zu verwechseln sein. Motiv: gefahrene
+       Linie (voll) und Modellspur (gestrichelt) vom selben Start. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%230f6b63'/%3E%3Cpath d='M11 50 C 25 46, 34 36, 53 30' fill='none' stroke='%23ffffff' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M11 50 C 22 40, 30 24, 50 12' fill='none' stroke='%23ffffff' stroke-width='4' stroke-linecap='round' stroke-dasharray='6 6'/%3E%3Ccircle cx='11' cy='50' r='6.5' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/diagnose.css" />
+</head>
+<body class="diag">
+  <div id="map"></div>
+  <div id="cursor-readout" class="mono" hidden></div>
+
+  <div id="panel">
+    <div id="panelhead">
+      <div class="diag-title">
+        <span class="diag-badge">Hindcast</span>
+        <h1>Modellverifikation</h1>
+      </div>
+      <div class="head-ctl">
+        <a class="diag-switch" href="../" title="Zur Vorhersageseite (Windtrajektorien)">→ Vorhersage</a>
+        <button id="paneltoggle" title="Bedienfeld ein-/ausklappen" aria-expanded="true">▾</button>
+      </div>
+    </div>
+
+    <p class="diag-intro">
+      Vergleicht eine <b>gefahrene</b> Strecke mit der reinen Modellwind-Trajektorie:
+      gleicher Start, gleiche Zeiten und Höhen wie im GPS-Track. Ein Blick zurück,
+      keine Vorhersage.
+    </p>
+
+    <label id="dropzone" class="diag-drop" for="gpxfile">
+      <span class="label">GPX-Track laden</span>
+      <span class="hint" id="trackinfo">Datei wählen oder hierher ziehen. Der Track bleibt im Browser,
+        an den Server gehen nur Modellgitterpunkte.</span>
+      <input type="file" id="gpxfile" accept=".gpx,application/gpx+xml" />
+    </label>
+
+    <div class="grid2">
+      <label>Beginn <span class="hint">(UTC)</span>
+        <input type="datetime-local" id="tstart" step="1" disabled />
+      </label>
+      <label>Ende <span class="hint">(UTC)</span>
+        <input type="datetime-local" id="tend" step="1" disabled />
+      </label>
+    </div>
+    <div class="hint" id="flighthint"></div>
+
+    <div class="label diag-sec">Modelle <span class="hint">(mehrere = Vergleich)</span></div>
+    <div id="modellist"></div>
+    <div class="hint mono" id="archivehint">Prüfe Datenarchiv auf dem Server …</div>
+
+    <button id="run" disabled>Diagnose berechnen</button>
+    <div id="progress" hidden><div id="progressbar"></div></div>
+    <div id="status"></div>
+
+    <div id="results" hidden>
+      <div class="label diag-sec">Vergleich</div>
+      <div class="diag-tablewrap"><table id="stats" class="diag-table"></table></div>
+
+      <div class="label diag-sec">Zeitpunkt</div>
+      <input type="range" id="tslider" min="0" max="0" value="0" aria-label="Zeitpunkt entlang der Fahrt" />
+      <div id="readout" class="hint mono"></div>
+
+      <div class="label diag-sec">Abstand Modellspur ↔ GPS</div>
+      <div class="diag-chart"><canvas id="chSep" role="img" aria-label="Abstand zwischen Modellspur und GPS-Track über die Zeit"></canvas></div>
+      <div class="label diag-sec">Geschwindigkeit: GPS über Grund vs. Modellwind</div>
+      <div class="diag-chart"><canvas id="chSpd" role="img" aria-label="Geschwindigkeit GPS und Modellwind über die Zeit"></canvas></div>
+      <div class="label diag-sec">Richtung: GPS-Kurs vs. Modell-Zugrichtung</div>
+      <div class="diag-chart"><canvas id="chDir" role="img" aria-label="GPS-Kurs und Zugrichtung des Modellwinds über die Zeit"></canvas></div>
+
+      <label class="row">
+        <span class="label">Modell-Windpfeile <span class="hint">(alle 2 min am GPS-Ort)</span></span>
+        <input type="checkbox" id="showArrows" checked />
+      </label>
+      <button id="download" class="secondary">Ergebnis als CSV herunterladen</button>
+    </div>
+
+    <details id="method">
+      <summary>Verfahren</summary>
+      <p class="hint">
+        Die Modellspur startet an der Startposition des GPS-Tracks und wird mit dessen
+        Zeitstempeln und GPS-Höhen (über NN) fortgeschrieben, zwischen zwei Trackpunkten
+        linear in Zeit und Höhe; Lücken über 30 s werden unterteilt. Jeder Schritt läuft
+        nach dem Petterssen-Schema, iteriert bis auf 0,1 m.
+      </p>
+      <p class="hint">
+        Wind: native ICON-Modelllevel an den echten Gitterpunkten des Modells, horizontal
+        bilinear, vertikal linear über die Modelllevel (Höhe = Modellgelände +
+        Levelhöhe über Grund), zeitlich linear zwischen den Stundenwerten — derselbe
+        Rechenkern wie auf der Vorhersageseite. Liegt die GPS-Höhe unter dem
+        (geglätteten) Modellgelände, wird das unterste Modelllevel verwendet; der Anteil
+        solcher Schritte steht im Ergebnis.
+      </p>
+      <p class="hint">
+        Ein Ballon fährt mit dem Wind — die Abweichung der Modellspur ist also der
+        aufsummierte Modellwindfehler entlang der Fahrt, ohne jede Korrektur.
+        Rückblick nur so weit, wie das Archiv des Servers reicht (oben je Modell angezeigt).
+      </p>
+    </details>
+
+    <div class="footer">
+      Daten: DWD ICON via open-meteo.wetterheidi.de (Fallback open-meteo.mah.priv.at)
+      <span id="sourceinfo"></span><br />
+      Für Vorhersagen: <a href="../">Windtrajektorien</a>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module" src="../src/diagnose/app.js"></script>
+</body>
+</html>

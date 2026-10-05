@@ -33,5 +33,5 @@ else
   sudo rsync -a --delete --exclude=.DS_Store "$PROJECT_DIR/dist/" "$DEST/"
 fi
 
-echo "==> Fertig: https://vps.mah.priv.at/trajectories/"
+echo "==> Fertig: https://vps.mah.priv.at/trajectories/ (Hindcast: …/trajectories/diagnose/)"
 echo "    (Basic Auth: user trajectories — hash in /etc/caddy/Caddyfile)"

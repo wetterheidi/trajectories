@@ -3,6 +3,11 @@
 ## Web UI (`vps.mah.priv.at/trajectories`)
 
 Static Vite build behind Caddy Basic Auth (username **`trajectories`**).
+The build contains two pages: the forecast at `/trajectories/` and the
+hindcast/model verification at `/trajectories/diagnose/`. `basic_auth
+/trajectories*` covers both. On `trajectories.wetterheidi.de` (Hetzner,
+`npm run deploy`) the Pförtner gate applies to the whole vhost, so `/diagnose/`
+is covered there too.
 
 ```bash
 cd /home/mah/src/trajectories

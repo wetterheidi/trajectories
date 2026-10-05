@@ -6,8 +6,10 @@
 # - Legt beim ersten Lauf den nginx-Vhost MIT Pfoertner-Gate an und holt
 #   das Let's-Encrypt-Zertifikat (idempotent, wird danach übersprungen)
 # - Synchronisiert dist/ nach /apps/trajectories auf dem Server
+#   (enthält beide Seiten: Vorhersage unter / und Hindcast unter /diagnose/)
 #
-# Pfoertner: Der Vhost meldet sich als tool=trajectories. Damit jemand
+# Pfoertner: Der Vhost meldet sich als tool=trajectories -- das gilt auch
+# für /diagnose/ (gleicher Nutzerkreis, kein eigener Tool-Eintrag nötig). Damit jemand
 # hineinkommt, muss das Tool einmalig im Panel unter
 # https://verwaltung.wetterheidi.de/admin/tools angelegt und den Nutzern
 # das Häkchen gegeben werden — bis dahin liefert der Pförtner 403.

@@ -94,6 +94,70 @@ export async function computeTrajectory({
   return { points, markers, status, reason, target, direction };
 }
 
+/**
+ * Diagnose-/Hindcast-Trajektorie entlang eines vorgegebenen Höhen-Zeit-
+ * Profils (z. B. einer gefahrenen Ballonfahrt): Start an der ersten
+ * Profilposition, dann rein mit dem Modellwind verlagert -- die Höhe ist zu
+ * jedem Zeitpunkt die des Profils (zwischen zwei Profilpunkten linear in der
+ * Zeit), nicht eine konstante Zielfläche.
+ *
+ * Zeitschritte sind die Profilabstände selbst (Lücken auf maxStepSec = 30 s
+ * unterteilt, das hält Schritte weit unter einer Gitterweite); jeder Schritt läuft wie computeTrajectory nach Petterssen,
+ * hier aber bis zur Konvergenz auf 0,1 m iteriert -- bei Schritten von wenigen
+ * Sekunden kostet das kaum etwas, der Diskretisierungsfehler bleibt so weit
+ * unter der Modellunsicherheit.
+ *
+ * profile: [{tMs, z}] aufsteigend (z = Höhe m über NN).
+ * windAt(lat, lon, z, tMs) -> {u, v} in m/s oder {error}.
+ * Liefert points[k] passend zu profile[k] (bei Abbruch kürzer).
+ */
+export async function computeAlongProfile({
+  windAt,
+  lat0,
+  lon0,
+  profile,
+  maxStepSec = 30,
+  tolMeters = 0.1,
+  maxIter = 10,
+  signal = null,
+  onProgress = null,
+}) {
+  let lat = lat0, lon = lon0;
+  const tFirst = profile[0].tMs, tLast = profile.at(-1).tMs;
+  const points = [{ lat, lon, tMs: tFirst, z: profile[0].z }];
+  let status = "ok", reason = null;
+
+  outer:
+  for (let i = 0; i < profile.length - 1; i++) {
+    const a = profile[i], b = profile[i + 1];
+    const span = b.tMs - a.tMs;
+    const nSub = span > 0 ? Math.max(1, Math.ceil(span / 1000 / maxStepSec)) : 0;
+    for (let s = 0; s < nSub; s++) {
+      if (signal?.aborted) throw abortError();
+      const ta = a.tMs + (span * s) / nSub, tb = a.tMs + (span * (s + 1)) / nSub;
+      const za = a.z + ((b.z - a.z) * s) / nSub, zb = a.z + ((b.z - a.z) * (s + 1)) / nSub;
+      const dt = (tb - ta) / 1000;
+
+      const w0 = await windAt(lat, lon, za, ta);
+      if (w0.error) { status = "stopped"; reason = w0.error; break outer; }
+      let [lat1, lon1] = advect(lat, lon, w0.u, w0.v, dt);
+      for (let it = 0; it < maxIter; it++) {
+        const w1 = await windAt(lat1, lon1, zb, tb);
+        if (w1.error) { status = "stopped"; reason = w1.error; break outer; }
+        const [latN, lonN] = advect(lat, lon, 0.5 * (w0.u + w1.u), 0.5 * (w0.v + w1.v), dt);
+        const move = distMeters(lat1, lon1, latN, lonN);
+        lat1 = latN; lon1 = lonN;
+        if (move < tolMeters) break;
+      }
+      lat = lat1; lon = lon1;
+    }
+    points.push({ lat, lon, tMs: b.tMs, z: b.z });
+    onProgress?.(tLast > tFirst ? (b.tMs - tFirst) / (tLast - tFirst) : 1);
+  }
+
+  return { points, status, reason };
+}
+
 /** Verlagerung in Kugelgeometrie; cos(Breite) im Meridianabstand. */
 function advect(lat, lon, u, v, dtSec) {
   const latMid = (lat + (lat + (v * dtSec / R_EARTH) * DEG)) / 2;

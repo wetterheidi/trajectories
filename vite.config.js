@@ -21,6 +21,17 @@ export default defineConfig({
   // mit esbuild vorbündeln, das Vite-eigene Import-Suffixe wie `?inline`
   // (gramet-panel.js lädt so sein CSS) nicht kennt.
   optimizeDeps: { exclude: ["meteokit"] },
+  // Zwei Seiten aus einem Build: die Vorhersage (index.html) und der
+  // Hindcast/die Modellverifikation unter /diagnose/ (gleicher Rechenkern,
+  // gleiches Deploy, gleicher Pförtner-Schutz des Vhosts).
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        diagnose: fileURLToPath(new URL("./diagnose/index.html", import.meta.url)),
+      },
+    },
+  },
   // Die Bibliothek liegt außerhalb des Projekt-Roots -- ohne diese Freigabe
   // verweigert der Dev-Server das Ausliefern ihrer Module.
   server: {

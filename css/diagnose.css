@@ -1,0 +1,136 @@
+/* Hindcast-/Diagnoseseite (diagnose/index.html).
+   Baut auf style.css auf (gleicher Grundaufbau: Karte + Bedienfeld rechts,
+   mobil als Bottom-Sheet) und setzt nur die Unterschiede. Erkennungsfarbe ist
+   Petrol statt des Vorhersage-Blaus (#1c5cab) -- die beiden Seiten sollen auf
+   den ersten Blick nicht zu verwechseln sein. */
+
+body.diag {
+  --diag-accent: #0f6b63;
+  --diag-accent-hover: #0c5952;
+  --diag-accent-soft: #e3f1ef;
+}
+
+/* Kopf als farbiges Band mit Kennzeichnung „Hindcast“. */
+.diag #panelhead {
+  margin: -12px -14px 10px;
+  padding: 10px 14px;
+  background: var(--diag-accent);
+  color: #fff;
+  border-radius: 8px 8px 0 0;
+}
+.diag #panel h1 { color: #fff; }
+.diag-title { display: flex; align-items: center; gap: 8px; }
+.diag-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--diag-accent);
+  background: #fff;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.diag .diag-switch {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.diag .diag-switch:hover { background: rgba(255, 255, 255, .15); }
+.diag #paneltoggle { color: #fff; }
+
+.diag-intro { margin: 0 0 10px; font-size: 13px; color: #3a3935; line-height: 1.45; }
+.diag-sec { margin: 14px 0 4px; }
+
+.diag-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1.5px dashed #9fc7c2;
+  border-radius: 8px;
+  background: var(--diag-accent-soft);
+  cursor: pointer;
+}
+.diag-drop.over { border-color: var(--diag-accent); background: #cfe7e3; }
+.diag-drop input { font-size: 12px; width: 100%; }
+/* datetime-local hat eine große Mindestbreite -- ohne min-width:0 sprengt
+   das Ende-Feld die zweite Spalte. */
+.diag .grid2 label { min-width: 0; }
+.diag input[type="datetime-local"] {
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 6px;
+  border: 1px solid #c9c8c2;
+  border-radius: 5px;
+  background: #fff;
+}
+
+#flighthint { min-height: 1.2em; margin: -4px 0 4px; }
+#archivehint { min-height: 1.2em; margin-top: 4px; }
+
+#modellist { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+.model-row { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 2px 0; }
+.model-row .model-name { font-weight: 600; flex: none; }
+.model-row .model-note { margin-left: auto; text-align: right; }
+.model-row.off { color: #9c9b95; cursor: default; }
+.model-row.off .model-note { color: #b3261e; }
+.diag .chip { width: 22px; height: 4px; }
+.chip.dash { background: none !important; border-top: 4px dashed var(--c); height: 0; box-shadow: none; }
+
+/* Knöpfe in Petrol statt Blau. */
+.diag #run { background: var(--diag-accent); margin-top: 10px; }
+.diag #run:hover:not(:disabled) { background: var(--diag-accent-hover); }
+.diag #run:disabled { background: #9c9b95; }
+.diag #run.running { background: #8a2b22; }
+.diag #progressbar { background: var(--diag-accent); }
+.diag #download {
+  width: 100%;
+  margin-top: 8px;
+  color: var(--diag-accent);
+  border-color: var(--diag-accent);
+}
+.diag #download:hover { background: var(--diag-accent-soft); }
+.diag a { color: var(--diag-accent); }
+.diag #method { margin-top: 12px; }
+.diag #method summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.diag #method p { line-height: 1.45; margin: 6px 0; }
+
+.diag-tablewrap { overflow-x: auto; }
+.diag-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.diag-table th, .diag-table td { padding: 3px 3px; border-bottom: 1px solid #e4e3de; text-align: right; }
+.diag-table th:first-child, .diag-table td:first-child { text-align: left; font-weight: 400; color: #3a3935; }
+.diag-table th { font-weight: 600; white-space: nowrap; }
+.diag-table td { white-space: nowrap; }
+.diag-table td:first-child { white-space: normal; }
+.diag-table th .chip { display: inline-block; vertical-align: middle; margin-right: 4px; }
+.diag-table tr.warn td { color: #8a5a00; }
+
+#tslider { width: 100%; accent-color: var(--diag-accent); }
+#readout { min-height: 2.6em; line-height: 1.5; }
+#readout b { color: #0b0b0b; }
+
+.diag-chart { position: relative; height: 150px; }
+
+/* Kartenlegende (unten links) */
+.diag-legend {
+  background: rgba(252, 252, 251, 0.94);
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
+  padding: 5px 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.diag-legend[hidden] { display: none; }
+.diag-legend div { display: flex; align-items: center; gap: 6px; }
+
+@media (max-width: 700px), (max-height: 500px) {
+  .diag #panelhead { border-radius: 12px 12px 0 0; background: var(--diag-accent); }
+  .diag #download { padding: 10px; }
+  .diag-legend { display: none; }
+}
