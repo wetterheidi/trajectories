@@ -346,6 +346,10 @@ export async function update(data) {
     profile: {
       pos,
       z: waypoints.map((w) => w.z),
+      // Kumulierte Strecke je Wegpunkt für den Zeit/Strecke-Umschalter der
+      // Komponente -- aus derselben Liste, damit sie der echten (kurvigen)
+      // Trajektorie folgt statt den Sehnen zwischen den Wetterspalten.
+      dist: cumulativeDistM(waypoints),
       color: run.color,
       label: run.label,
     },
@@ -358,6 +362,7 @@ export async function update(data) {
     zoomLabel: "um die Trajektorie",
     range: prefs.range ?? "zoom",
     layers: prefs.layers,
+    xAxis: prefs.xAxis ?? "time",
     exportNameParts: ["gramet", modelKey, run.label],
   });
 
@@ -365,6 +370,19 @@ export async function update(data) {
   // inzwischen keine andere Trajektorie angefordert wurde.
   const terrain = await result.terrainPromise;
   if (terrain && my === seq) panel.update({ terrain });
+}
+
+/** Kumulierte Großkreisstrecke (m) entlang der Wegpunkte. */
+function cumulativeDistM(waypoints) {
+  const R = 6371000, r = Math.PI / 180;
+  const out = new Float64Array(waypoints.length);
+  for (let i = 1; i < waypoints.length; i++) {
+    const a = waypoints[i - 1], b = waypoints[i];
+    const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+    out[i] = out[i - 1] + 2 * R * Math.asin(Math.sqrt(h));
+  }
+  return out;
 }
 
 export async function show(data) {

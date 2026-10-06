@@ -117,11 +117,15 @@ Wetter in der ganzen Säule *entlang des Flugpfades*: Wolken, Niederschlag,
 Vereisung/Turbulenz,
 Isothermen/Isotachen über der Modell-Orographie und dem echten Gelände, dazu
 die Bodenzeilen (Wind, Böen, Sicht, ww, T/Td, Luftdruck). Die x-Achse zählt
-verstrichene Flugzeit, jede Spalte wird an *ihrem* Ort zu *ihrer* Zeit aus dem
+verstrichene Flugzeit oder — Umschalter „Zeit | Strecke" im Kopf, wird
+gemerkt — die zurückgelegte Strecke entlang der Trajektorie (dann stehen die
+Uhrzeiten unter der Achse ungleichmäßig, wo der Wind schneller oder langsamer
+trägt). Jede Spalte wird an *ihrem* Ort zu *ihrer* Zeit aus dem
 Modell gezogen; die Trajektorie selbst liegt als Linie in ihrer korrekten
 Höhe (m NN) darin. Bei Rückwärtsläufen steht links die Herkunft und rechts
 die gewählte Startzeit (der Kopf nennt beide Zeitpunkte). Verlässt der Pfad
-das Modellgebiet, endet der Querschnitt dort mit sichtbarem Grund.
+das Modellgebiet oder reicht er über das Ende des Vorhersagezeitraums hinaus,
+endet der Querschnitt dort mit sichtbarem Grund.
 
 Die Höhenachse hat zwei Bereiche. „Gesamthöhe" reicht bis knapp über die
 Tropopause (höchster Tropopausenpunkt + 2,5 km, damit überschießende
