@@ -16,6 +16,10 @@
 <body class="diag">
   <div id="map"></div>
   <div id="cursor-readout" class="mono" hidden></div>
+  <!-- Ziehgriff am linken Rand des Bedienfelds (nur Desktop). Bewusst außerhalb
+       von #panel: das Panel scrollt, ein Kind dort scrollte mit weg. -->
+  <div id="panelresize" title="Ziehen: Bedienfeld breiter/schmaler · Doppelklick: Standardbreite"
+       role="separator" aria-orientation="vertical" aria-label="Breite des Bedienfelds"></div>
 
   <div id="panel">
     <div id="panelhead">
@@ -25,6 +29,7 @@
       </div>
       <div class="head-ctl">
         <a class="diag-switch" href="../" title="Zur Vorhersageseite (Windtrajektorien)">→ Vorhersage</a>
+        <button id="panelwide" title="Bedienfeld verbreitern (größere Diagramme)" aria-pressed="false">⇔</button>
         <button id="paneltoggle" title="Bedienfeld ein-/ausklappen" aria-expanded="true">▾</button>
       </div>
     </div>
@@ -64,7 +69,8 @@
       <div class="label diag-sec">Vergleich</div>
       <div class="diag-tablewrap"><table id="stats" class="diag-table"></table></div>
 
-      <div class="label diag-sec">Zeitpunkt</div>
+      <div class="label diag-sec">Zeitpunkt
+        <span class="hint">(oder Maus über Spur bzw. Diagramm)</span></div>
       <input type="range" id="tslider" min="0" max="0" value="0" aria-label="Zeitpunkt entlang der Fahrt" />
       <div id="readout" class="hint mono"></div>
 
@@ -80,6 +86,30 @@
         <input type="checkbox" id="showArrows" checked />
       </label>
       <button id="download" class="secondary">Ergebnis als CSV herunterladen</button>
+    </div>
+
+    <div class="label diag-sec">Einheiten</div>
+    <div class="grid3">
+      <label>Höhe
+        <select id="unitheight">
+          <option value="m">m</option>
+          <option value="ft">ft</option>
+        </select>
+      </label>
+      <label>Geschw.
+        <select id="unitwind">
+          <option value="kmh">km/h</option>
+          <option value="ms">m/s</option>
+          <option value="kt">kt</option>
+        </select>
+      </label>
+      <label>Strecke
+        <select id="unitdist">
+          <option value="km">km</option>
+          <option value="nm">NM</option>
+          <option value="mi">mi</option>
+        </select>
+      </label>
     </div>
 
     <details id="method">

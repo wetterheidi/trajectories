@@ -10,6 +10,9 @@ import { API_BASE, DEV_PROXY_BASE, MODELS } from "../config.js";
 import { getApiSources, onApiSourceChange } from "meteokit/apifetch";
 import { WindField } from "../windfield.js";
 import { computeAlongProfile } from "../integrator.js";
+import {
+  unitState, setUnits, fmtHeight, windToDisplay, windUnit, distToDisplay, distUnit,
+} from "../units.js";
 import { probeArchive, bboxCenter } from "./archive.js";
 import {
   parseTrackGPX, detectFlight, obsVel, dist, speedDir, diagStats,
@@ -48,10 +51,17 @@ const BELOW_GROUND = /Gelände über Zielhöhe/;
 const STORAGE_KEY = "diagnoseSettings";
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { /* egal */ }
+// Einheiten: eigene Wahl der Diagnoseseite, sonst die der Vorhersageseite
+// übernehmen (gleicher Browser, gleiche Nutzerin -- meist gleiche Gewohnheit).
+let forecastUnits = {};
+try { forecastUnits = JSON.parse(localStorage.getItem("trajectories.settings.v1"))?.units || {}; } catch { /* egal */ }
+setUnits({ ...forecastUnits, ...saved.units });
+let panelW = 400; // Breite des Bedienfelds am Desktop, s. „Bedienfeld“ unten
 function persist() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       models: [...selected], showArrows: el("showArrows").checked, baseLayer: activeBaseLayer,
+      units: { ...unitState }, panelWidth: panelW,
     }));
   } catch { /* Speichern ist Komfort, nie Fehlerquelle */ }
 }
@@ -113,7 +123,11 @@ const fmtDate = (ms) => {
 };
 const toInput = (ms) => new Date(ms).toISOString().slice(0, 19);
 const fromInput = (v) => Date.parse(v.length === 16 ? `${v}:00Z` : `${v}Z`);
-const km = (m, d = 2) => `${(m / 1000).toFixed(d)} km`;
+// Anzeige in den gewählten Einheiten (gerechnet wird durchgehend in m, m/s).
+const fmtDist = (m, d = 2) => `${distToDisplay(m).toFixed(d)} ${distUnit()}`;
+const fmtSpd = (ms, sign = false) =>
+  `${sign && ms >= 0 ? "+" : ""}${windToDisplay(ms).toFixed(1)} ${windUnit()}`;
+const fmtZ = (m) => `${fmtHeight(m)} NN`;
 
 function setStatus(msg, isError = false) {
   el("status").textContent = msg;
@@ -253,7 +267,7 @@ function updateFlightHint() {
   const zMax = Math.max(...pts.slice(seg.i0, seg.i1 + 1).map((p) => p.z));
   el("flighthint").textContent =
     `${Math.round((b.tMs - a.tMs) / 60000)} min · ${seg.i1 - seg.i0 + 1} Punkte · ` +
-    `max. ${Math.round(zMax)} m NN · vorbelegt: Start bis Landung`;
+    `max. ${fmtZ(zMax)} · vorbelegt: Start bis Landung`;
 }
 
 for (const id of ["tstart", "tend"]) {
@@ -269,7 +283,7 @@ for (const id of ["tstart", "tend"]) {
 }
 
 // --- GPS-Track zeichnen -----------------------------------------------------
-function drawGps() {
+function drawGps(fit = !state.results) {
   gpsLayer.clearLayers();
   const pts = state.track.points;
   const all = pts.map((p) => [p.lat, p.lon]);
@@ -287,7 +301,7 @@ function drawGps() {
       .addTo(gpsLayer).bindTooltip(`GPS-Ende ${fmtT(pts[seg.i1].tMs)} UTC`);
     addTimeMarks(pts.slice(seg.i0, seg.i1 + 1), GPS_COLOR, gpsLayer);
   }
-  if (!state.results) fitVisible(L.latLngBounds(all).pad(0.1));
+  if (fit) fitVisible(L.latLngBounds(all).pad(0.1));
 }
 
 // Kartenlegende statt Endbeschriftungen an den Spuren -- die Modellspuren
@@ -325,7 +339,7 @@ function addTimeMarks(pts, color, layer) {
     while (j < pts.length - 1 && pts[j + 1].tMs <= t) j++;
     const p = pts[j];
     L.circleMarker([p.lat, p.lon], { radius: 4, color, weight: 2, fillColor: "#fff", fillOpacity: 1 })
-      .bindTooltip(`${fmtHM(t)} UTC · ${Math.round(p.z)} m NN`).addTo(layer);
+      .bindTooltip(`${fmtHM(t)} UTC · ${fmtZ(p.z)}`).addTo(layer);
   }
 }
 
@@ -440,18 +454,53 @@ function clearResults() {
   el("run").textContent = "Diagnose berechnen";
 }
 
+const resultKeys = () => MODEL_ORDER.filter((k) => state.results?.models[k]);
+
 function drawResults() {
   const { gps, models } = state.results;
   clearResults();
   drawGps();
-  const keys = MODEL_ORDER.filter((k) => models[k]);
+  const keys = resultKeys();
+  // Einheitenunabhängig, daher einmal je Rechnung.
   const obs = gps.map((_, i) => obsVel(gps, i));
-  const bounds = L.latLngBounds(gps.map((p) => [p.lat, p.lon]));
+  state.results.obs = obs;
+  state.results.stats = Object.fromEntries(keys.map((k) => [k, diagStats(gps, models[k].points, obs, models[k].wind)]));
 
+  drawModelTracks(keys);
+  drawArrows();
+  updateLegend(keys);
+  const bounds = L.latLngBounds(gps.map((p) => [p.lat, p.lon]));
+  for (const k of keys) models[k].points.forEach((p) => bounds.extend([p.lat, p.lon]));
+  fitVisible(bounds.pad(0.05));
+
+  renderStats(keys);
+  drawCharts(keys);
+
+  // Zeitschieber + Cursor-Marker (nicht anklickbar: sie sollen weder
+  // Tooltips aufspannen noch den Maussync über der Spur stören).
+  cursor = { gps: null, models: {}, lines: {} };
+  for (const k of keys) {
+    cursor.lines[k] = L.polyline([], { color: MODEL_STYLE[k].color, weight: 1.5, dashArray: "2 4", interactive: false })
+      .addTo(cursorLayer);
+    cursor.models[k] = L.circleMarker([0, 0], {
+      radius: 7, color: "#fff", weight: 2, fillColor: MODEL_STYLE[k].color, fillOpacity: 1, interactive: false,
+    }).addTo(cursorLayer);
+  }
+  cursor.gps = L.circleMarker([0, 0], {
+    radius: 8, color: "#fff", weight: 2, fillColor: GPS_COLOR, fillOpacity: 1, interactive: false,
+  }).addTo(cursorLayer);
+  el("tslider").max = String(gps.length - 1);
+  el("tslider").value = "0";
+  el("results").hidden = false;
+  updateCursor();
+}
+
+function drawModelTracks(keys) {
+  const { models } = state.results;
+  for (const k of MODEL_ORDER) modelLayers[k].track.clearLayers();
   for (const k of keys) {
     const r = models[k], st = MODEL_STYLE[k];
     const ll = r.points.map((p) => [p.lat, p.lon]);
-    ll.forEach((p) => bounds.extend(p));
     L.polyline(ll, { color: "#fff", weight: 6, opacity: 0.75 }).addTo(modelLayers[k].track);
     L.polyline(ll, { color: st.color, weight: 3.5, dashArray: st.dash }).addTo(modelLayers[k].track)
       .bindTooltip(`Modellspur ${SHORT[k]}`, { sticky: true });
@@ -460,27 +509,26 @@ function drawResults() {
       .bindTooltip(`${SHORT[k]}: Ende ${fmtT(r.points.at(-1).tMs)} UTC`);
     addTimeMarks(r.points, st.color, modelLayers[k].track);
   }
-  drawArrows();
-  updateLegend(keys);
-  fitVisible(bounds.pad(0.05));
+}
 
-  // Kennzahlen-Tabelle: Zeilen = Kennzahl, Spalten = Modell.
-  const stats = Object.fromEntries(keys.map((k) => [k, diagStats(gps, models[k].points, obs, models[k].wind)]));
+/** Kennzahlen-Tabelle: Zeilen = Kennzahl, Spalten = Modell. */
+function renderStats(keys) {
+  const { gps, models, stats } = state.results;
   const head = `<tr><th></th>${keys.map((k) =>
     `<th title="${SHORT[k]}"><span class="chip dash" style="--c:${MODEL_STYLE[k].color}"></span>${TINY[k]}</th>`).join("")}</tr>`;
   const s0 = stats[keys[0]];
   const rows = [
     ["Zeitraum", () => `${fmtHM(gps[0].tMs)}–${fmtHM(gps.at(-1).tMs)} UTC (${Math.round(s0.durSec / 60)} min)`, true],
-    ["Start → Ende GPS", () => `${km(s0.directO, 1)} / ${Math.round(s0.brgO)}°`, true],
-    ["Start → Ende Modell", (s) => `${km(s.directD, 1)} / ${Math.round(s.brgD)}°`],
-    ["Ablage am Ende", (s) => km(s.endSep)],
+    ["Start → Ende GPS", () => `${fmtDist(s0.directO, 1)} / ${Math.round(s0.brgO)}°`, true],
+    ["Start → Ende Modell", (s) => `${fmtDist(s.directD, 1)} / ${Math.round(s.brgD)}°`],
+    ["Ablage am Ende", (s) => fmtDist(s.endSep)],
     ["Ablage rel. zur Distanz", (s) => (s.relEnd == null ? "–" : `${Math.round(100 * s.relEnd)} %`)],
-    ["Max. Ablage", (s) => km(s.maxSep)],
-    ["Mittlere Ablage", (s) => km(s.meanSep)],
-    ["Verlagerung GPS", () => `${(s0.vObs * 3.6).toFixed(1)} km/h`, true],
-    ["Verlagerung Modell", (s) => `${(s.vMod * 3.6).toFixed(1)} km/h`],
-    ["Windfehler (Vektor, RMS)", (s) => (s.rmseVec == null ? "–" : `${s.rmseVec.toFixed(1)} m/s`)],
-    ["Bias Geschw. (Modell − GPS)", (s) => (s.biasSpd == null ? "–" : `${s.biasSpd >= 0 ? "+" : ""}${s.biasSpd.toFixed(1)} m/s`)],
+    ["Max. Ablage", (s) => fmtDist(s.maxSep)],
+    ["Mittlere Ablage", (s) => fmtDist(s.meanSep)],
+    ["Verlagerung GPS", () => fmtSpd(s0.vObs), true],
+    ["Verlagerung Modell", (s) => fmtSpd(s.vMod)],
+    ["Windfehler (Vektor, RMS)", (s) => (s.rmseVec == null ? "–" : fmtSpd(s.rmseVec))],
+    ["Bias Geschw. (Modell − GPS)", (s) => (s.biasSpd == null ? "–" : fmtSpd(s.biasSpd, true))],
     ["Mittl. Richtungsfehler |Δ|", (s) => (s.meanAbsDir == null ? "–" : `${Math.round(s.meanAbsDir)}°`)],
     ["Unter Modellgelände", (s, k) => `${Math.round(100 * models[k].belowShare)} %`],
   ];
@@ -491,21 +539,6 @@ function drawResults() {
   el("stats").innerHTML = head + body + (partial.length
     ? `<tr class="warn"><td colspan="${keys.length + 1}">Unvollständig: ${partial.map((k) => SHORT[k]).join(", ")} – Kennzahlen nur bis zum Abbruch.</td></tr>`
     : "");
-
-  drawCharts(keys, obs);
-
-  // Zeitschieber + Cursor-Marker
-  cursor = { gps: null, models: {}, lines: {} };
-  for (const k of keys) {
-    cursor.lines[k] = L.polyline([], { color: MODEL_STYLE[k].color, weight: 1.5, dashArray: "2 4" }).addTo(cursorLayer);
-    cursor.models[k] = L.circleMarker([0, 0], { radius: 7, color: "#fff", weight: 2, fillColor: MODEL_STYLE[k].color, fillOpacity: 1 })
-      .addTo(cursorLayer);
-  }
-  cursor.gps = L.circleMarker([0, 0], { radius: 8, color: "#fff", weight: 2, fillColor: GPS_COLOR, fillOpacity: 1 }).addTo(cursorLayer);
-  el("tslider").max = String(gps.length - 1);
-  el("tslider").value = "0";
-  el("results").hidden = false;
-  updateCursor();
 }
 
 function drawArrows() {
@@ -524,7 +557,7 @@ function drawArrows() {
       const len = w.spd * 120;
       const [la2, lo2] = offset(p.lat, p.lon, w.dir, len);
       L.polyline([[p.lat, p.lon], [la2, lo2]], { color, weight: 2 }).addTo(layer)
-        .bindTooltip(`${fmtT(p.tMs)} UTC, ${Math.round(p.z)} m NN<br>${SHORT[k]}: ${w.spd.toFixed(1)} m/s nach ${Math.round(w.dir)}°`);
+        .bindTooltip(`${fmtT(p.tMs)} UTC, ${fmtZ(p.z)}<br>${SHORT[k]}: ${fmtSpd(w.spd)} nach ${Math.round(w.dir)}°`);
       const hl = Math.max(40, len * 0.18);
       for (const b of [w.dir + 155, w.dir - 155]) {
         L.polyline([[la2, lo2], offset(la2, lo2, b, hl)], { color, weight: 2 }).addTo(layer);
@@ -540,18 +573,26 @@ function offset(lat, lon, brgDeg, meters) {
   return [lat + dLat, lon + dLon];
 }
 
-function drawCharts(keys, obs) {
-  const { gps, models } = state.results;
+// Diagramm-Stützstelle j -> GPS-Index (Diagramme sind ausgedünnt).
+let chartIdx = [];
+let chartStep = 1;
+const chartJ = (i) => Math.min(chartIdx.length - 1, Math.round(i / chartStep));
+
+function drawCharts(keys) {
+  const { gps, models, obs } = state.results;
   // Höchstens ~300 Stützstellen je Diagramm -- mehr sieht man nicht.
   const step = Math.max(1, Math.ceil(gps.length / 300));
   const idx = [];
   for (let i = 0; i < gps.length; i += step) idx.push(i);
   if (idx.at(-1) !== gps.length - 1) idx.push(gps.length - 1);
+  chartIdx = idx;
+  chartStep = step;
   const labels = idx.map((i) => fmtHM(gps[i].tMs));
   const sepOf = (k, i) => {
     const d = models[k].points[i];
-    return d ? +(dist(gps[i].lat, gps[i].lon, d.lat, d.lon) / 1000).toFixed(3) : null;
+    return d ? +distToDisplay(dist(gps[i].lat, gps[i].lon, d.lat, d.lon)).toFixed(3) : null;
   };
+  const spdOf = (w) => (w ? +windToDisplay(w.spd).toFixed(2) : null);
   const ds = (label, data, color, extra = {}) => ({
     label, data, borderColor: color, backgroundColor: color, pointBackgroundColor: color,
     borderWidth: 2, pointRadius: 0, spanGaps: false, ...extra,
@@ -560,12 +601,12 @@ function drawCharts(keys, obs) {
   const scatter = { borderWidth: 0, pointRadius: 2, showLine: false };
 
   mk("chSep", labels, keys.map((k) => ds(SHORT[k], idx.map((i) => sepOf(k, i)), MODEL_STYLE[k].color, { borderDash: dashOf(k) })),
-    "km", { beginAtZero: true });
+    distUnit(), { beginAtZero: true });
   mk("chSpd", labels, [
-    ds("GPS über Grund", idx.map((i) => (obs[i] ? +obs[i].spd.toFixed(2) : null)), GPS_COLOR),
-    ...keys.map((k) => ds(SHORT[k], idx.map((i) => (models[k].wind[i] ? +models[k].wind[i].spd.toFixed(2) : null)),
+    ds("GPS über Grund", idx.map((i) => spdOf(obs[i])), GPS_COLOR),
+    ...keys.map((k) => ds(SHORT[k], idx.map((i) => spdOf(models[k].wind[i])),
       MODEL_STYLE[k].color, { borderDash: dashOf(k) })),
-  ], "m/s", { beginAtZero: true });
+  ], windUnit(), { beginAtZero: true });
   mk("chDir", labels, [
     ds("GPS-Kurs", idx.map((i) => (obs[i] && obs[i].spd > 1.5 ? Math.round(obs[i].dir) : null)), GPS_COLOR, scatter),
     ...keys.map((k) => ds(SHORT[k], idx.map((i) => (models[k].wind[i] ? Math.round(models[k].wind[i].dir) : null)),
@@ -573,16 +614,47 @@ function drawCharts(keys, obs) {
   ], "° (wohin)", { min: 0, max: 360, ticks: { stepSize: 90, color: "#52514e" } });
 }
 
+// Senkrechte Linie am aktuellen Zeitpunkt (Zeitschieber/Maus), in allen
+// Diagrammen gleich -- die Brücke zwischen Karte und Zeitachse.
+const cursorLinePlugin = {
+  id: "diagCursor",
+  afterDatasetsDraw(chart) {
+    const j = chart.$diagJ;
+    if (j == null) return;
+    const x = chart.scales.x.getPixelForValue(j);
+    const { top, bottom } = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(31, 41, 51, 0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
 function mk(id, labels, datasets, yTitle, yOpt = {}) {
   charts[id]?.destroy();
   charts[id] = new Chart(el(id), {
     type: "line",
     data: { labels, datasets },
+    plugins: [cursorLinePlugin],
     options: {
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
+      // Maus über dem Diagramm schiebt den Zeitpunkt mit (Karte, Readout,
+      // die anderen beiden Diagramme).
+      onHover: (e, _els, chart) => {
+        if (e.type === "mouseout") return;
+        const { left, right } = chart.chartArea;
+        if (e.x < left || e.x > right) return;
+        const j = Math.round(chart.scales.x.getValueForPixel(e.x));
+        if (Number.isFinite(j)) showIndex(chartIdx[Math.max(0, Math.min(chartIdx.length - 1, j))], id);
+      },
       plugins: {
         legend: { labels: { color: "#3a3935", boxWidth: 14, boxHeight: 2, font: { size: 11 } } },
         tooltip: { callbacks: { title: (it) => `${it[0].label} UTC` } },
@@ -597,16 +669,20 @@ function mk(id, labels, datasets, yTitle, yOpt = {}) {
     },
   });
 }
+for (const id of ["chSep", "chSpd", "chDir"]) el(id).addEventListener("mouseleave", () => hoverEnd(id));
 
-function updateCursor() {
+/** Zeitpunkt des Zeitschiebers auf Karte, Readout und Diagramme bringen.
+ *  `source` = woher die Maus kommt ("map" | Diagramm-ID | null für den
+ *  Schieber selbst); die übrigen Diagramme zeigen dann ihren Tooltip mit. */
+function updateCursor(source = null) {
   if (!state.results || !cursor) return;
   const { gps, models } = state.results;
   const i = +el("tslider").value, p = gps[i];
   cursor.gps.setLatLng([p.lat, p.lon]);
   const ov = obsVel(gps, i);
   const lines = [
-    `<b>${fmtT(p.tMs)} UTC</b> · ${Math.round(p.z)} m NN` +
-    (ov ? ` · GPS ${ov.spd.toFixed(1)} m/s nach ${Math.round(ov.dir)}°` : ""),
+    `<b>${fmtT(p.tMs)} UTC</b> · ${fmtZ(p.z)}` +
+    (ov ? ` · GPS ${fmtSpd(ov.spd)} nach ${Math.round(ov.dir)}°` : ""),
   ];
   for (const k of MODEL_ORDER.filter((x) => models[x])) {
     const r = models[k], d = r.points[Math.min(i, r.points.length - 1)], w = r.wind[i];
@@ -614,12 +690,113 @@ function updateCursor() {
     cursor.lines[k].setLatLngs([[p.lat, p.lon], [d.lat, d.lon]]);
     const after = i >= r.points.length ? " (nach Abbruch)" : "";
     lines.push(`${SHORT[k]}: ` +
-      (w ? `${w.spd.toFixed(1)} m/s nach ${Math.round(w.dir)}° · ` : "") +
-      `Ablage <b>${km(dist(p.lat, p.lon, d.lat, d.lon))}</b>${after}`);
+      (w ? `${fmtSpd(w.spd)} nach ${Math.round(w.dir)}° · ` : "") +
+      `Ablage <b>${fmtDist(dist(p.lat, p.lon, d.lat, d.lon))}</b>${after}`);
   }
   el("readout").innerHTML = lines.join("<br>");
+  syncCharts(i, source);
 }
-el("tslider").addEventListener("input", updateCursor);
+el("tslider").addEventListener("input", () => updateCursor());
+
+function syncCharts(i, source) {
+  const j = chartJ(i);
+  for (const [id, ch] of Object.entries(charts)) {
+    ch.$diagJ = j;
+    // Im Diagramm unter der Maus zeichnet Chart.js den Tooltip selbst.
+    if (id === source) { ch.draw(); continue; }
+    const active = source
+      ? ch.data.datasets.flatMap((d, di) => (d.data[j] != null && ch.isDatasetVisible(di) ? [{ datasetIndex: di, index: j }] : []))
+      : [];
+    if (!active.length && !ch.getActiveElements().length) { ch.draw(); continue; }
+    ch.setActiveElements(active);
+    ch.tooltip.setActiveElements(active, { x: ch.scales.x.getPixelForValue(j), y: ch.chartArea.top });
+    ch.update("none");
+  }
+}
+
+// --- Maussync Karte <-> Diagramme -------------------------------------------
+// Gemeinsame Größe ist der Index in den GPS-Track: Modellspur-Punkt i gehört
+// zum selben Zeitpunkt wie GPS-Punkt i. Die Maus setzt den Zeitschieber --
+// die Position bleibt also stehen, wenn sie die Spur bzw. das Diagramm
+// verlässt; nur die mitgezeigten Tooltips verschwinden dann.
+let hover = null, hoverQueued = false;
+
+/** Zeitpunkt (GPS-Index) zeigen, höchstens einmal je Frame. */
+function showIndex(i, source) {
+  hover = { i, source };
+  if (hoverQueued) return;
+  hoverQueued = true;
+  requestAnimationFrame(() => {
+    hoverQueued = false;
+    if (!state.results || !hover) return;
+    if (hover.i != null) el("tslider").value = String(hover.i);
+    updateCursor(hover.source);
+  });
+}
+
+function hoverEnd(source) {
+  if (hover?.source === source) showIndex(null, null);
+}
+
+// Trefferradius um die Spuren in Bildschirmpixeln.
+const HIT_PX = 20;
+let projCache = null;
+
+/** Sichtbare Spuren (GPS + Modelle) in Layer-Pixeln, gecacht. Der Schlüssel
+ *  aus Zoom, Pixelursprung und sichtbaren Ebenen deckt alles ab, was die
+ *  Projektion oder die Auswahl ändern kann. */
+function projectedTracks() {
+  const r = state.results;
+  if (!r) return null;
+  const visible = resultKeys().filter((k) => map.hasLayer(modelLayers[k].track));
+  const withGps = map.hasLayer(gpsLayer);
+  const o = map.getPixelOrigin();
+  const key = `${map.getZoom()}|${o.x}|${o.y}|${withGps}|${visible.join()}`;
+  if (projCache?.r !== r || projCache.key !== key) {
+    const tracks = [...(withGps ? [r.gps] : []), ...visible.map((k) => r.models[k].points)];
+    projCache = { r, key, tracks: tracks.map((pts) => pts.map((p) => map.latLngToLayerPoint([p.lat, p.lon]))) };
+  }
+  return projCache;
+}
+
+/** GPS-Index unter dem Zeiger: nächstliegendes Segment aller sichtbaren Spuren. */
+function indexUnderPointer(pt, radius) {
+  const proj = projectedTracks();
+  if (!proj) return null;
+  let best = radius * radius, hit = null;
+  for (const pts of proj.tracks) {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const f = len2 > 0 ? Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len2)) : 0;
+      const ex = a.x + f * dx - pt.x, ey = a.y + f * dy - pt.y;
+      const d2 = ex * ex + ey * ey;
+      if (d2 < best) { best = d2; hit = f < 0.5 ? i - 1 : i; }
+    }
+  }
+  return hit;
+}
+
+let mapPt = null, mapQueued = false;
+map.on("mousemove", (e) => {
+  if (!state.results) return;
+  mapPt = e.layerPoint;
+  if (mapQueued) return;
+  mapQueued = true;
+  requestAnimationFrame(() => {
+    mapQueued = false;
+    const i = indexUnderPointer(mapPt, HIT_PX);
+    if (i != null) showIndex(i, "map"); else hoverEnd("map");
+  });
+});
+map.on("mouseout", () => hoverEnd("map"));
+// Antippen der Spur (Touch kennt kein Überfahren): Zeitpunkt setzen.
+map.on("click", (e) => {
+  if (!state.results) return;
+  const i = indexUnderPointer(e.layerPoint, 30);
+  if (i != null) showIndex(i, null);
+});
 
 // --- CSV --------------------------------------------------------------------
 el("download").addEventListener("click", () => {
@@ -663,6 +840,92 @@ function updateSourceInfo() {
   info.title = used.map((x) => `${MODELS[x.key].label}: ${hostLabel(x.base)}`).join("\n");
 }
 onApiSourceChange(updateSourceInfo);
+
+// --- Einheiten --------------------------------------------------------------
+el("unitheight").value = unitState.height;
+el("unitwind").value = unitState.wind;
+el("unitdist").value = unitState.dist;
+for (const id of ["unitheight", "unitwind", "unitdist"]) {
+  el(id).addEventListener("change", () => {
+    setUnits({ height: el("unitheight").value, wind: el("unitwind").value, dist: el("unitdist").value });
+    persist();
+    applyUnits();
+  });
+}
+
+/** Alles mit Einheiten neu beschriften -- ohne neu einzupassen und ohne den
+ *  Zeitschieber zurückzusetzen. Die CSV bleibt bewusst in SI (m, m/s). */
+function applyUnits() {
+  if (!state.track) return;
+  drawGps(false);
+  updateFlightHint();
+  if (!state.results) return;
+  const keys = resultKeys();
+  drawModelTracks(keys);
+  drawArrows();
+  renderStats(keys);
+  drawCharts(keys);
+  updateCursor();
+}
+
+// --- Bedienfeld: Breite (Desktop) -------------------------------------------
+// Ziehgriff am linken Rand bzw. ⇔-Knopf; die Diagramme wachsen mit (CSS
+// aspect-ratio, Chart.js folgt der Containergröße von selbst).
+const PANEL_W_DEFAULT = 400, PANEL_W_MIN = 340;
+const isSheet = () => window.matchMedia("(max-width: 700px), (max-height: 500px)").matches;
+const panelMax = () => Math.max(PANEL_W_MIN, Math.min(1100, window.innerWidth - 80));
+
+function setPanelWidth(w, store = true) {
+  panelW = Math.round(Math.max(PANEL_W_MIN, Math.min(panelMax(), w)));
+  el("panel").style.setProperty("--panel-w", `${panelW}px`);
+  el("panelwide").setAttribute("aria-pressed", String(panelW > PANEL_W_DEFAULT + 20));
+  placeResizeHandle();
+  if (store) persist();
+}
+
+/** Griff an den linken Panelrand legen. Er liegt außerhalb des Panels (das
+ *  scrollt), muss Höhe und Lage also nachgeführt bekommen. */
+function placeResizeHandle() {
+  const h = el("panelresize");
+  h.hidden = isSheet();
+  if (h.hidden) return;
+  const pr = el("panel").getBoundingClientRect();
+  h.style.left = `${pr.left - 5}px`;
+  h.style.top = `${pr.top}px`;
+  h.style.height = `${pr.height}px`;
+}
+
+{
+  const h = el("panelresize");
+  let drag = null;
+  h.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, w: panelW };
+    h.setPointerCapture(e.pointerId);
+    h.classList.add("dragging");
+    document.body.classList.add("resizing");
+  });
+  h.addEventListener("pointermove", (e) => {
+    // Panel hängt rechts -- nach links ziehen macht es breiter.
+    if (drag) setPanelWidth(drag.w + (drag.x - e.clientX), false);
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    h.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+    persist();
+  };
+  h.addEventListener("pointerup", end);
+  h.addEventListener("pointercancel", end);
+  h.addEventListener("dblclick", () => setPanelWidth(PANEL_W_DEFAULT));
+}
+el("panelwide").addEventListener("click", () => {
+  const wide = Math.min(panelMax(), Math.max(640, Math.round(window.innerWidth * 0.45)));
+  setPanelWidth(panelW > PANEL_W_DEFAULT + 20 ? PANEL_W_DEFAULT : wide);
+});
+new ResizeObserver(placeResizeHandle).observe(el("panel"));
+window.addEventListener("resize", () => setPanelWidth(panelW, false));
+setPanelWidth(Number.isFinite(saved.panelWidth) ? saved.panelWidth : PANEL_W_DEFAULT, false);
 
 // --- Mobiles Bedienfeld -----------------------------------------------------
 el("paneltoggle").addEventListener("click", () => {

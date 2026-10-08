@@ -258,6 +258,17 @@ Vorhersage, „→ Vorhersage“ im Kopf des Hindcasts.
   Kennzahlen (Ablage Ende/max./mittel, Verlagerung, Vektor-Windfehler RMS,
   Geschwindigkeits-Bias, mittlerer Richtungsfehler), Diagramme (Abstand,
   Geschwindigkeit, Richtung) und CSV-Export aller Punkte.
+- **Maussync:** Gemeinsame Größe ist der Index in den GPS-Track (Modellspur-
+  Punkt i = GPS-Punkt i). Maus über GPS-Track oder Modellspur (Trefferradius
+  20 px, Antippen am Handy) bzw. über einem Diagramm setzt den Zeitschieber;
+  Karte, Readout und die übrigen Diagramme (senkrechte Linie + Tooltip) ziehen
+  mit. Die Position bleibt stehen, wenn die Maus die Spur verlässt.
+- **Ansicht:** Bedienfeld am Desktop per Ziehgriff am linken Rand oder
+  ⇔-Knopf verbreiterbar (340 px bis 1100 px). Die Diagramme wachsen mit
+  (`aspect-ratio`, gedeckelt auf 38 vh). Einheiten für Höhe (m/ft),
+  Geschwindigkeit (km/h, m/s, kt) und Strecke (km, NM, mi) über `src/units.js`.
+  Ohne eigene Wahl werden die Einheiten der Vorhersageseite übernommen. Die
+  CSV bleibt in SI. Breite und Einheiten liegen in `localStorage`.
 
 ## Meteorologik
 

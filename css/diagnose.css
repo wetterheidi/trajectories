@@ -42,6 +42,46 @@ body.diag {
 }
 .diag .diag-switch:hover { background: rgba(255, 255, 255, .15); }
 .diag #paneltoggle { color: #fff; }
+#panelwide {
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 999px;
+  background: none;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+#panelwide:hover, #panelwide[aria-pressed="true"] { background: rgba(255, 255, 255, .2); }
+
+/* Breite des Bedienfelds (Desktop): per Ziehgriff bzw. ⇔-Knopf, in JS als
+   --panel-w gesetzt. Die Diagramme wachsen mit der Breite mit (aspect-ratio). */
+@media (min-width: 701px) and (min-height: 501px) {
+  .diag #panel { width: var(--panel-w, 400px); }
+}
+#panelresize {
+  position: absolute;
+  z-index: 1001;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+#panelresize::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 3px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 2px;
+  background: #9fc7c2;
+  opacity: .7;
+}
+#panelresize:hover::before, #panelresize.dragging::before { background: #0f6b63; opacity: 1; height: 72px; margin-top: -36px; }
+#panelresize[hidden] { display: none; }
+body.diag.resizing { cursor: ew-resize; user-select: none; }
+body.diag.resizing #map { pointer-events: none; }
 
 .diag-intro { margin: 0 0 10px; font-size: 13px; color: #3a3935; line-height: 1.45; }
 .diag-sec { margin: 14px 0 4px; }
@@ -115,7 +155,13 @@ body.diag {
 #readout { min-height: 2.6em; line-height: 1.5; }
 #readout b { color: #0b0b0b; }
 
-.diag-chart { position: relative; height: 150px; }
+/* Höhe folgt der Panelbreite: 400 px Panel -> ~150 px, breit gezogen mehr,
+   gedeckelt, damit drei Diagramme noch zusammen auf den Schirm passen. */
+.diag-chart { position: relative; aspect-ratio: 5 / 2; min-height: 150px; max-height: 38vh; }
+
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 4px 0 8px; }
+.grid3 label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; min-width: 0; }
+.grid3 select { width: 100%; }
 
 /* Kartenlegende (unten links) */
 .diag-legend {
@@ -132,5 +178,6 @@ body.diag {
 @media (max-width: 700px), (max-height: 500px) {
   .diag #panelhead { border-radius: 12px 12px 0 0; background: var(--diag-accent); }
   .diag #download { padding: 10px; }
+  #panelwide { display: none; }
   .diag-legend { display: none; }
 }
