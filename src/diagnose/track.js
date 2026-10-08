@@ -39,7 +39,17 @@ export function parseTrackGPX(text, parser = new DOMParser()) {
   const doc = parser.parseFromString(text, "application/xml");
   if (doc.getElementsByTagName("parsererror").length) throw new Error("Die Datei ist kein gültiges GPX/XML.");
   const nodes = [...doc.getElementsByTagName("trkpt")];
-  if (!nodes.length) throw new Error("Die GPX-Datei enthält keinen Track (trkpt).");
+  if (!nodes.length) {
+    const nWpt = doc.getElementsByTagName("wpt").length;
+    const nRte = doc.getElementsByTagName("rtept").length;
+    if (nWpt || nRte) {
+      const was = nRte ? "eine geplante Route" : `nur ${nWpt} einzelne Wegpunkte`;
+      throw new Error(`Die Datei enthält ${was}, aber keine aufgezeichnete Fahrt. ` +
+        "Bitte im GPS-Gerät bzw. in der App den Track (das Tracklog der Fahrt) exportieren.");
+    }
+    throw new Error("Die Datei enthält keine aufgezeichnete Fahrt. " +
+      "Bitte im GPS-Gerät bzw. in der App den Track (das Tracklog der Fahrt) exportieren.");
+  }
   let noTime = 0, noEle = 0;
   const pts = [];
   for (const n of nodes) {

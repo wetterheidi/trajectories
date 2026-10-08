@@ -240,7 +240,8 @@ Vorhersage, „→ Vorhersage“ im Kopf des Hindcasts.
 
 - **Eingabe:** GPX-Track mit Zeit und Höhe je Punkt, per Dateiwahl oder Drag &
   Drop. Der Track bleibt im Browser, an den Server gehen nur Gitterpunkte.
-  Beginn und Ende werden auf Start und Landung vorbelegt (Höhe 8 m über dem
+  Dateien nur mit Wegpunkten (`wpt`) oder einer Route (`rtept`) werden mit
+  dem Hinweis abgewiesen, das Tracklog der Fahrt zu exportieren. Beginn und Ende werden auf Start und Landung vorbelegt (Höhe 8 m über dem
   Anfangswert bzw. Stillstand am Ende) und sind änderbar.
 - **Modelle:** D2, EU und Global, einzeln oder zum Vergleich. Wie weit das
   Archiv zurückreicht, fragt die Seite beim Laden **live beim Server** ab
